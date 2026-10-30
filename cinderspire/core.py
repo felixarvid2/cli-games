@@ -95,6 +95,7 @@ AUTO_LINES = {
     "aura": "Attacks deal {0} extra damage.",
     "strip_block": "Remove all enemy Block.",
     "lightbringer": "At the start of your turn, add 1 Silver Hand Recruit.",
+    "draw_if_poisoned": "Draw {0} card(s) if the target is Poisoned.",
 }
 
 
@@ -570,6 +571,8 @@ class Combat:
                 self.status(self.player, "lightbringer", v(a[0]))
             elif op == "add_recruit":
                 self.add_recruits(v(a[0]))
+            elif op == "draw_if_poisoned":
+                self.draw_if_poisoned(v(a[0]))
             elif op == "strip_block":
                 for e in self.alive_enemies():
                     e.block = 0
@@ -594,6 +597,18 @@ class Combat:
             added += 1
         if added:
             self.log(f"{added} Shivs appear in your hand.", "green")
+
+    def bonus_if_burn(self, base, bonus):
+        if any(c["id"] == "burn" for c in self.hand):
+            self.atk(self.target, base + bonus)
+            self.log("The Burn feeds the strike.", "orange")
+        else:
+            self.atk(self.target, base)
+
+    def draw_if_poisoned(self, n):
+        if self.target is not None and st(self.target, "poison") > 0:
+            self.draw(n)
+            self.log("The poison opens a gap.", "green")
 
     def catalyst(self):
         t = self.target

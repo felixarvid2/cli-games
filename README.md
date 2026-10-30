@@ -82,10 +82,19 @@ work.
 | **The Pilgrim** | Healing, Block, thorns and zeal | Smite |
 | **The Silver Hand** | Divine Shield, Recruits, blessings and auras | Reinforce |
 
-Each class has **60 unique cards** and its own basic Strike/Defend variants -
-there is no shared card pool at all. Rewards, shops and the codex change with
-your choice. Every class can be won with, and winning with all five unlocks the
-**Polymath** achievement.
+Each class has **60 unique cards** and its own basics - there is no shared card
+pool at all. Rewards, shops and the codex change with your choice. Every class
+can be won with, and winning with all five unlocks the **Polymath** achievement.
+
+The starting decks are deliberately different from turn one:
+
+| Class | Starter deck (10 cards) |
+| --- | --- |
+| Warden | 5× Strike (7 dmg), 3× Defend, Brace (Block + Strength), Bash |
+| Ashblade | 5× Quick Cut (bonus vs Poisoned), 2× Dodge (Block + draw), Poison Dart, Shiv Throw, Poison Stab |
+| Emberwright | 4× Spark (bonus with a Burn), 3× Guard, Arc, Coil, Beam Cell |
+| Pilgrim | 4× Censure (damage + heal), 3× Ward, Bless, Shield Bash, Smite |
+| Silver Hand | 4× Hammer (damage + Block), 3× Shield of Light, Faith, Aegis Blessing, Reinforce |
 
 ## What's in the spire
 

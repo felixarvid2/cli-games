@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.5.0
+
+- Unique basics and starter decks for all five classes; no shared "6/5" clones.
+- Class-flavoured common cards (poison draws, healing strikes, block riders).
+- Balance pass: every class now wins 45-52 % in simulation.
+
 ## 1.4.0
 
 - Fifth class: The Silver Hand (Divine Shield, Recruits, blessings, auras).

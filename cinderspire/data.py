@@ -73,7 +73,7 @@ _add(card("thunderclap", "Thunderclap", "attack", 1, "common",
           play=lambda cb: (cb.atk_all(cb.C["dmg"]),
                            cb.status_all("vuln", 1))))
 _add(card("poison_stab", "Poison Stab", "attack", 1, "common",
-          "Deal {d} damage.\nApply {m} Poison.", dmg=6, magic=3,
+          "Deal {d} damage.\nApply {m} Poison.", dmg=5, magic=2,
           up={"magic": 2},
           play=lambda cb: (cb.atk(cb.target, cb.C["dmg"]),
                            cb.status(cb.target, "poison", cb.C["magic"]))))
@@ -932,7 +932,7 @@ for _cid, _card in CARDS.items():
 
 # --- Ashblade --------------------------------------------------------------
 _add(card("shiv", "Shiv", "attack", 0, "token",
-          "Deal {d} damage.\nExhaust.", dmg=4, exhaust=True, cls="ashblade",
+          "Deal {d} damage.\nExhaust.", dmg=3, exhaust=True, cls="ashblade",
           up={"dmg": 0},
           play=lambda cb: cb.atk(cb.target, cb.C["dmg"])))
 _add(card("blade_dance", "Blade Dance", "skill", 1, "common",
@@ -1081,31 +1081,59 @@ POOL = {r: [c["id"] for c in CARDS.values() if c["rarity"] == r]
 
 # ------------------------------------------------------- class basics ------
 
-def basic(cls, cid, name, dmg, block):
-    if dmg:
-        _add(card(cid, name, "attack", 1, "basic", "Deal {d} damage.",
-                  dmg=dmg, cls=cls, up={"dmg": 3},
-                  play=lambda cb: cb.atk(cb.target, cb.C["dmg"])))
-    else:
-        _add(card(cid, name, "skill", 1, "basic", "Gain {b} Block.",
-                  block=block, cls=cls, target="none", up={"block": 3},
-                  play=lambda cb: cb.block(cb.C["block"])))
-
-
-basic("warden", "w_strike", "Strike", 6, 0)
-basic("warden", "w_defend", "Defend", 0, 5)
-basic("ashblade", "a_strike", "Quick Cut", 6, 0)
-basic("ashblade", "a_defend", "Dodge", 0, 5)
-basic("emberwright", "e_strike", "Spark", 6, 0)
-basic("emberwright", "e_defend", "Guard", 0, 5)
-basic("pilgrim", "p_strike", "Censure", 6, 0)
-basic("pilgrim", "p_defend", "Ward", 0, 5)
+# Each class gets its own basics with a small signature rider.
+_add(card("w_strike", "Strike", "attack", 1, "basic", "Deal {d} damage.",
+          dmg=7, cls="warden", up={"dmg": 3},
+          play=lambda cb: cb.atk(cb.target, cb.C["dmg"])))
+_add(card("w_defend", "Defend", "skill", 1, "basic", "Gain {b} Block.",
+          block=5, cls="warden", target="none", up={"block": 3},
+          play=lambda cb: cb.block(cb.C["block"])))
+_add(card("a_strike", "Quick Cut", "attack", 1, "basic",
+          "Deal {d} damage.\nDeal {m} more if the\ntarget is Poisoned.",
+          dmg=5, magic=2, cls="ashblade", up={"dmg": 2, "magic": 1},
+          play=lambda cb: cb.bonus_if_poisoned(cb.C["dmg"], cb.C["magic"])))
+_add(card("a_defend", "Dodge", "skill", 1, "basic",
+          "Gain {b} Block.\nDraw 1 card.", block=3, cls="ashblade",
+          target="none", up={"block": 2},
+          play=lambda cb: (cb.block(cb.C["block"]), cb.draw(1))))
+_add(card("e_strike", "Spark", "attack", 1, "basic",
+          "Deal {d} damage.\nDeal {m} more if you\nhold a Burn.",
+          dmg=6, magic=4, cls="emberwright", up={"dmg": 2},
+          play=lambda cb: cb.bonus_if_burn(cb.C["dmg"], cb.C["magic"])))
+_add(card("e_defend", "Guard", "skill", 1, "basic", "Gain {b} Block.",
+          block=6, cls="emberwright", target="none", up={"block": 3},
+          play=lambda cb: cb.block(cb.C["block"])))
+_add(card("p_strike", "Censure", "attack", 1, "basic",
+          "Deal {d} damage.\nHeal {m} HP.", dmg=5, magic=1,
+          cls="pilgrim", up={"dmg": 2},
+          play=lambda cb: (cb.atk(cb.target, cb.C["dmg"]),
+                           cb.heal(cb.C["magic"]))))
+_add(card("p_defend", "Ward", "skill", 1, "basic", "Gain {b} Block.",
+          block=6, cls="pilgrim", target="none", up={"block": 3},
+          play=lambda cb: cb.block(cb.C["block"])))
+_add(card("pal_strike", "Hammer", "attack", 1, "basic",
+          "Deal {d} damage.\nGain {b} Block.", dmg=5, block=1,
+          cls="paladin", up={"dmg": 2},
+          play=lambda cb: (cb.atk(cb.target, cb.C["dmg"]),
+                           cb.block(cb.C["block"]))))
+_add(card("pal_defend", "Shield of Light", "skill", 1, "basic",
+          "Gain {b} Block.\nGain {m} more if you\nhave Divine Shield.",
+          block=5, magic=2, cls="paladin", target="none",
+          up={"block": 3},
+          play=lambda cb: cb.block(cb.C["block"] + (
+              cb.C["magic"] if cb.player.st.get("shield") else 0))))
 
 STARTERS = {
-    "warden": ["w_strike"] * 5 + ["w_defend"] * 4 + ["bash"],
-    "ashblade": ["a_strike"] * 5 + ["a_defend"] * 4 + ["poison_stab"],
-    "emberwright": ["e_strike"] * 5 + ["e_defend"] * 4 + ["beam_cell"],
-    "pilgrim": ["p_strike"] * 5 + ["p_defend"] * 4 + ["smite"],
+    "warden": ["w_strike"] * 5 + ["w_defend"] * 3 + ["w_brace", "bash"],
+    "ashblade": (["a_strike"] * 5 + ["a_defend"] * 2
+                 + ["a_poison_dart", "a_shiv_throw", "poison_stab"]),
+    "emberwright": (["e_strike"] * 4 + ["e_defend"] * 3
+                    + ["e_arc", "e_coil", "beam_cell"]),
+    "pilgrim": (["p_strike"] * 4 + ["p_defend"] * 3
+                + ["p_bless", "p_shield_bash", "smite"]),
+    "paladin": (["pal_strike"] * 4 + ["pal_defend"] * 3
+                + ["pal_blessing_of_might", "pal_aegis_blessing",
+                   "pal_reinforce"]),
 }
 
 # ------------------------------------------------------- effect cards ------
@@ -1140,7 +1168,8 @@ N.append(ecard("warden", "w_iron_bash", "Iron Bash", "attack", 2, "common",
                [("dmg", "dmg"), ("vuln", "magic")], dmg=14, magic=1,
                up={"dmg": 4, "magic": 1}))
 N.append(ecard("warden", "w_heavy_swing", "Heavy Swing", "attack", 2, "common",
-               [("dmg", "dmg")], dmg=15, up={"dmg": 5}))
+               [("dmg", "dmg"), ("lose_hp", "hp_loss")], dmg=15, hp_loss=2,
+               up={"dmg": 5}))
 N.append(ecard("warden", "w_cleave_arc", "Cleave Arc", "attack", 1, "common",
                [("all", "dmg")], dmg=7, target="all", up={"dmg": 3}))
 N.append(ecard("warden", "w_shield_charge", "Shield Charge", "attack", 1,
@@ -1152,7 +1181,7 @@ N.append(ecard("warden", "w_rend", "Rend", "attack", 1, "common",
 N.append(ecard("warden", "w_pummel", "Pummel", "attack", 1, "common",
                [("dmg", "dmg", "hits")], dmg=4, hits=3, up={"dmg": 1}))
 N.append(ecard("warden", "w_brace", "Brace", "skill", 1, "common",
-               [("block", "block"), ("str", "magic")], block=7, magic=1,
+               [("block", "block"), ("str", "magic")], block=5, magic=1,
                target="none", up={"block": 3}))
 N.append(ecard("warden", "w_stance", "Defensive Stance", "skill", 1, "common",
                [("block", "block")], block=11, target="none",
@@ -1220,17 +1249,18 @@ N.append(ecard("warden", "w_ruin", "Ruin", "attack", 2, "rare",
 
 N = []
 N.append(ecard("ashblade", "a_slice", "Slice", "attack", 1, "common",
-               [("dmg", "dmg")], dmg=7, up={"dmg": 3}))
+               [("dmg", "dmg"), ("draw_if_poisoned", "magic")], dmg=6,
+               magic=1, up={"dmg": 3}))
 N.append(ecard("ashblade", "a_sucker_punch", "Sucker Punch", "attack", 1,
                "common", [("dmg", "dmg"), ("weak", "magic")], dmg=6, magic=1,
                up={"dmg": 2, "magic": 1}))
 N.append(ecard("ashblade", "a_poison_dart", "Poison Dart", "attack", 1,
                "common", [("dmg", "dmg"), ("poison", "magic")], dmg=4,
-               magic=3, up={"dmg": 1, "magic": 1}))
+               magic=2, up={"dmg": 1, "magic": 1}))
 N.append(ecard("ashblade", "a_nightshade", "Nightshade", "skill", 0, "common",
                [("poison", "magic")], magic=2, exhaust=True, up={"magic": 2}))
 N.append(ecard("ashblade", "a_shiv_throw", "Shiv Throw", "attack", 1,
-               "common", [("dmg", "dmg"), ("add_shiv", "magic")], dmg=5,
+               "common", [("dmg", "dmg"), ("add_shiv", "magic")], dmg=4,
                magic=1, up={"dmg": 2, "magic": 1}))
 N.append(ecard("ashblade", "a_dagger_spray", "Dagger Spray", "attack", 1,
                "common", [("all", "dmg")], dmg=5, target="all",
@@ -1292,8 +1322,8 @@ N.append(ecard("ashblade", "a_shadow_dance", "Shadow Dance", "skill", 1,
                "uncommon", [("add_shiv", "magic")], magic=3, target="none",
                up={"magic": 1}))
 N.append(ecard("ashblade", "a_venom_fang", "Venom Fang", "attack", 2,
-               "uncommon", [("dmg", "dmg"), ("poison", "magic")], dmg=12,
-               magic=4, up={"dmg": 4, "magic": 2}))
+               "uncommon", [("dmg", "dmg"), ("poison", "magic")], dmg=11,
+               magic=3, up={"dmg": 4, "magic": 2}))
 N.append(ecard("ashblade", "a_smoke_screen", "Smoke Screen", "skill", 2,
                "uncommon", [("block", "block"), ("draw", "magic")], block=14,
                magic=1, target="none", up={"block": 5}))
@@ -1481,7 +1511,8 @@ N.append(ecard("pilgrim", "p_sanctify", "Sanctify", "skill", 1, "common",
                [("block", "block"), ("heal", "magic")], block=7, magic=2,
                target="none", up={"block": 3}))
 N.append(ecard("pilgrim", "p_mace", "Mace", "attack", 2, "common",
-               [("dmg", "dmg")], dmg=15, up={"dmg": 5}))
+               [("dmg", "dmg"), ("heal", "magic")], dmg=15, magic=2,
+               up={"dmg": 5}))
 N.append(ecard("pilgrim", "p_shield_wall", "Shield Wall", "skill", 2,
                "common", [("block", "block")], block=14, target="none",
                up={"block": 5}))
@@ -1513,7 +1544,8 @@ N.append(ecard("pilgrim", "p_cathedral", "Cathedral", "power", 1, "uncommon",
                [("divine", "magic")], magic=4, target="none",
                up={"magic": 1}))
 N.append(ecard("pilgrim", "p_judgement", "Judgement", "attack", 2,
-               "uncommon", [("dmg", "dmg")], dmg=18, up={"dmg": 6}))
+               "uncommon", [("dmg", "dmg"), ("heal", "magic")], dmg=18,
+               magic=3, up={"dmg": 6}))
 N.append(ecard("pilgrim", "p_grace", "Grace", "skill", 1, "uncommon",
                [("block", "block"), ("heal", "magic")], block=8, magic=3,
                target="none", up={"block": 3, "magic": 2}))
@@ -1581,11 +1613,9 @@ CLASSES["paladin"] = dict(
     blurb="Divine shields, recruits and blessings.",
     detail="Absorb hits with Divine Shield and swarm with Recruits.")
 
-STARTERS["paladin"] = (["pal_strike"] * 5 + ["pal_defend"] * 4
-                       + ["pal_reinforce"])
-
-basic("paladin", "pal_strike", "Hammer", 6, 0)
-basic("paladin", "pal_defend", "Shield of Light", 0, 5)
+STARTERS["paladin"] = (["pal_strike"] * 4 + ["pal_defend"] * 3
+                       + ["pal_faith", "pal_aegis_blessing",
+                          "pal_reinforce"])
 
 _add(card("recruit", "Silver Hand Recruit", "attack", 0, "token",
           "Deal {d} damage.\nExhaust.", dmg=4, exhaust=True, cls="paladin",
@@ -1615,7 +1645,8 @@ N.append(ecard("paladin", "pal_faith", "Faith", "skill", 0, "common",
                [("heal", "magic")], magic=2, target="none", exhaust=True,
                up={"magic": 1}))
 N.append(ecard("paladin", "pal_verdict", "Verdict", "attack", 2, "common",
-               [("dmg", "dmg")], dmg=14, up={"dmg": 4}))
+               [("dmg", "dmg"), ("block", "block")], dmg=12, block=2,
+               up={"dmg": 4}))
 N.append(ecard("paladin", "pal_seal_of_light", "Seal of Light", "attack", 1,
                "common", [("dmg", "dmg"), ("heal", "magic")], dmg=7, magic=3,
                up={"dmg": 2, "magic": 1}))
@@ -1646,7 +1677,8 @@ N.append(ecard("paladin", "pal_touch_of_light", "Touch of Light", "skill", 1,
                "common", [("heal", "magic"), ("block", "block")], magic=4,
                block=4, target="none", up={"magic": 2, "block": 2}))
 N.append(ecard("paladin", "pal_holy_strike", "Holy Strike", "attack", 1,
-               "common", [("dmg", "dmg")], dmg=10, up={"dmg": 3}))
+               "common", [("dmg", "dmg"), ("block", "block")], dmg=9,
+               block=1, up={"dmg": 3}))
 N.append(ecard("paladin", "pal_aegis_blessing", "Aegis Blessing", "skill", 1,
                "common", [("shield", "magic")], magic=1, target="none",
                up={"cost": 0}))

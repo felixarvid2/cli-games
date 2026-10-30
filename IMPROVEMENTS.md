@@ -256,3 +256,19 @@ newer-version refusal, unknown-content cleanup, run reconstruction).
 - **Polymath** now requires a win with all five classes.
 - **Balance** (40 sims each): Warden 45 %, Ashblade 40 %, Emberwright 40 %,
   Silver Hand 38 %, Pilgrim 35 %.
+
+
+## Class identity pass (round 8)
+
+- **Unique basics for every class**, no more five clones of "6 damage / 5
+  block": Quick Cut (poison payoff), Dodge (Block + draw), Spark (Burn payoff),
+  Censure (damage + heal), Hammer (damage + Block), Shield of Light (Block that
+  scales with Divine Shield), Ward (6 Block).
+- **Distinct starter decks**: each class now opens with 4-5 different cards
+  instead of 9 basics and a signature. Warden keeps the heavy 7-damage Strike,
+  Ashblade cycles with Dodge and poisons, Emberwright holds Burns, Pilgrim
+  heals on every Censure, the Silver Hand shields and recruits.
+- **Class-flavoured commons**: Heavy Swing pays HP, Slice draws only against
+  poisoned targets, Mace/Judgement heal, Holy Strike/Verdict add Block.
+- **Balance after the pass** (60 sims per class): Warden 52 %, Ashblade 45 %,
+  Emberwright 45 %, Pilgrim 47 %, Silver Hand 48 %.
