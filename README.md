@@ -62,6 +62,7 @@ Minimum size is 78x24; 100x30 or larger looks best.
 | `V` | Full card text / combat log |
 | `D` / `R` / `L` / `?` | Deck / relics / log / keywords |
 | `ESC` | Pause menu |
+| Mouse | Click a card to select it, click it again to play; click your minion then an enemy to attack; click END TURN; click menu entries, map nodes, reward cards, shop rows and events |
 
 ## Board combat
 

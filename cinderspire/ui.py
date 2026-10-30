@@ -197,6 +197,14 @@ class Game:
         except curses.error:
             pass
         scr.keypad(True)
+        try:
+            curses.mousemask(curses.ALL_MOUSE_EVENTS)
+            curses.mouseinterval(120)
+            self.mouse_ok = True
+        except curses.error:
+            self.mouse_ok = False
+        self.hot = []
+        self.last_hand_click = {}
         self.h, self.w = scr.getmaxyx()
         self.state = "title"
         self.t = 0.0
@@ -418,6 +426,7 @@ class Game:
 
     # -- screen dispatch ---------------------------------------------------
     def draw(self):
+        self.hot = []
         d = getattr(self, "draw_" + self.state, None)
         if d:
             d()
@@ -435,6 +444,122 @@ class Game:
                     self.toast = (msg, time.monotonic() + dur)
                 else:
                     self.toast = None
+
+    def hot_add(self, x, y, w, h, action):
+        self.hot.append((x, y, w, h, action))
+
+    def on_mouse(self):
+        try:
+            _, mx, my, _, bstate = curses.getmouse()
+        except curses.error:
+            return
+        if not (bstate & (curses.BUTTON1_CLICKED
+                          | curses.BUTTON1_DOUBLE_CLICKED
+                          | curses.BUTTON1_PRESSED)):
+            return
+        for hx, hy, hw, hh, action in reversed(self.hot):
+            if hx <= mx < hx + hw and hy <= my < hy + hh:
+                self.activate(action)
+                return
+
+    def activate(self, act):
+        kind = act[0]
+        cb = self.cb
+        if kind == "menu":
+            self.menu = act[1]
+            self.handle(10)
+        elif kind == "hand" and cb:
+            i = act[1]
+            now = time.monotonic()
+            double = (self.row == 0 and self.sel == i
+                      and now - self.last_hand_click.get(i, 0) < 0.7)
+            self.last_hand_click[i] = now
+            if double:
+                self.play(i)
+            else:
+                self.row = 0
+                self.sel = i
+                self.card_tip_until = now + 3.0
+        elif kind == "board" and cb:
+            i = act[1]
+            if self.row == 1 and self.bsel == i:
+                self.attack_action()
+            else:
+                self.row = 1
+                self.bsel = i
+        elif kind in ("enemy", "hero") and cb:
+            self.esel = 0 if kind == "hero" else act[1] + 1
+            if self.row == 1:
+                self.attack_action()
+            elif self.row == 0 and cb.hand:
+                d = BOARD_CARDS[cb.hand[min(self.sel, len(cb.hand) - 1)]["id"]]
+                if d["kind"] == "spell" and any(
+                        op[0] in ("dmg_target", "destroy_target")
+                        for op in d["effects"]):
+                    self.play(self.sel)
+                else:
+                    self.row = 2
+            else:
+                self.row = 2
+        elif kind == "end" and cb and cb.phase == "player":
+            cb.end_turn()
+            self.anim_next = time.monotonic() + 0.30 * self.anim
+            self.row = 0
+            self.sel = 0
+        elif kind == "map":
+            r = self.run
+            lane = act[2]
+            if act[1] == r.floor and lane in r.avail:
+                self.map_sel = r.avail.index(lane)
+                self.handle(10)
+            elif r.floor >= FLOORS and lane == "boss":
+                self.handle(10)
+        elif kind == "reward":
+            self.reward_sel = act[1]
+            self.handle(10)
+        elif kind == "skip":
+            self.handle(ord("s"))
+        elif kind == "rest":
+            self.rest_sel = act[1]
+            self.handle(10)
+        elif kind == "shop":
+            self.shop_sel = act[1]
+            self.handle(10)
+        elif kind == "event":
+            if self.event_stage < len(self.event["choices"]):
+                self.event_stage = act[1]
+                self.handle(10)
+            else:
+                self.handle(10)
+        elif kind == "pause":
+            self.menu = act[1]
+            self.key_overlay(10)
+        elif kind == "confirm":
+            self.confirm_sel = act[1]
+            self.key_overlay(10)
+        elif kind == "close":
+            self.overlay = None
+        elif kind == "endscreen":
+            self.handle(10)
+        elif kind == "interlude":
+            self.boon_sel = act[1]
+            self.handle(10)
+        elif kind == "heart":
+            self.heart_sel = act[1]
+            self.handle(10)
+        elif kind == "pick":
+            if self.overlay == "picker" and 0 <= act[1] < len(self.run.deck):
+                idx = act[1]
+                if self.picker["valid"](idx):
+                    self.picker["sel"] = idx
+                    fn = self.picker["on_pick"]
+                    self.overlay = None
+                    fn(idx)
+        elif kind == "potion":
+            self.pot_sel = act[1]
+            self.key_overlay(10)
+        elif kind == "buy":
+            self.handle(10)
 
     def draw_resize(self):
         msg = "Please resize the terminal"
@@ -514,6 +639,8 @@ class Game:
             label = (GL["arrow"] + "  " + it + "  " + GL["arrow"]) if sel else it
             attr = C("gold", bold=True) if sel else C("dim")
             self.center(y, label, attr)
+            self.hot_add(max(0, (self.w - len(label)) // 2), y, len(label), 1,
+                         ("menu", i))
         if self.best.get("best"):
             s = f"BEST RUN  {self.best['best']}   ·   WINS {self.best.get('wins', 0)}"
             self.center(self.h - 3, s, C("dim"))
@@ -1022,6 +1149,8 @@ class Game:
                 self.put(y, x - 1, label, attr)
                 if here:
                     self.put(y, x - 3, GL["tick"], C("green", bold=True))
+                if can:
+                    self.hot_add(x - 1, y, 3, 1, ("map", rr, lane))
                 if can and avail.index(lane) == self.map_sel % max(1, len(avail)):
                     self.put(y, x - 3, GL["arrow"], C("gold", bold=True))
         # boss
@@ -1033,6 +1162,7 @@ class Game:
         self.put(by, boss_x - 1, "[B]", battr)
         if boss_avail:
             self.put(by, boss_x - 3, GL["arrow"], C("gold", bold=True))
+            self.hot_add(boss_x - 1, by, 3, 1, ("map", FLOORS, "boss"))
         bname = ENEMIES[BOSSES[r.act][0]]["name"].upper()
         self.put(by + 1, boss_x - len(bname) // 2, bname, C("red", dim=True))
         # side panel
@@ -1189,6 +1319,8 @@ class Game:
                 sel = side == "player" and self.row == 1 and self.bsel == i
                 tgt = side == "enemy" and self.esel == i + 1
                 self.draw_minion_tile(y, x, w, m, sel, tgt)
+                self.hot_add(x, y, w, 4,
+                             ("board" if side == "player" else "enemy", i))
             else:
                 self.box(y, x, 4, w, C("faint", dim=True))
                 self.put(y + 1, x + 5, "empty", C("faint"))
@@ -1232,8 +1364,11 @@ class Game:
                      C("gold") if on else C("faint"))
         self.put(header_y, 7 + max(3, cb.player.max_mana) * 2 + 1,
                  f"{cb.player.mana}/{cb.player.max_mana}", C("dim"))
-        s = f"TURN {cb.turn}   DECK {len(cb.deck)}   DISCARD {len(cb.discard)}"
-        self.put(header_y, self.w - 2 - len(s), s, C("dim"))
+        s = f"TURN {cb.turn}  DECK {len(cb.deck)}"
+        self.put(header_y, self.w - 17 - len(s), s, C("dim"))
+        bx = self.w - 14
+        self.put(header_y, bx, " END TURN ", C("gold", bold=True, rev=True))
+        self.hot_add(bx, header_y, 10, 1, ("end",))
         if n == 0:
             self.center(cards_y + 3, "no cards in hand", C("faint"))
             return
@@ -1254,6 +1389,7 @@ class Game:
             self.draw_bcard(cards_y, x0 + k * (cw + gap), cw, inst,
                             i == self.sel and self.row == 0,
                             cb.can_play(i))
+            self.hot_add(x0 + k * (cw + gap), cards_y, cw, 8, ("hand", i))
         if start > 0:
             self.put(header_y, 30, f"\u2039 {start}", C("gold", dim=True))
         if start + show < n:
@@ -1560,6 +1696,7 @@ class Game:
                      else ("  " + label),
                      C("gold", bold=True) if sel else C("text"))
             self.put(y + 1, 10, desc, C("dim"))
+            self.hot_add(6, y, self.w - 12, 2, ("heart", i))
         self.hint("\u2191\u2193 choose   enter decide")
 
     def key_heart(self, ch):
@@ -1619,6 +1756,7 @@ class Game:
             self.put(y + 3, x + 1, GL["h"] * (wdt - 2), C(rl["color"], dim=True))
             for j, line in enumerate(wrap(rl["desc"], wdt - 4)[:3]):
                 self.put(y + 4 + j, x + 2, cut(line, wdt - 4), C("text"))
+            self.hot_add(x, y, wdt, 8, ("interlude", i))
         self.hint("arrows choose   enter claim")
 
     def key_interlude(self, ch):
@@ -1678,7 +1816,10 @@ class Game:
             self.draw_bcard(y, x0 + i * (cw + gap), cw,
                             {"id": cid, "up": 0},
                             i == self.reward_sel, True)
+            self.hot_add(x0 + i * (cw + gap), y, cw, 8, ("reward", i))
         self.hint("arrows choose   enter take card   s skip")
+        self.put(self.h - 1, self.w - 8, " SKIP ", C("gold", bold=True, rev=True))
+        self.hot_add(self.w - 8, self.h - 1, 6, 1, ("skip",))
 
     def key_reward(self, ch):
         n = len(self.reward["cards"])
@@ -1735,6 +1876,7 @@ class Game:
             self.put(oy, cx - 18, label.ljust(9),
                      C("gold", bold=True) if sel else C("text"))
             self.put(oy, cx - 7, desc, C("dim"))
+            self.hot_add(cx - 18, oy, 40, 1, ("rest", i))
         self.hint("arrows choose   enter confirm")
 
     def key_rest(self, ch):
@@ -1796,6 +1938,7 @@ class Game:
         rows = self.shop_rows()
         for k, (kind, idx) in enumerate(rows):
             y = 5 + k * 2
+            self.hot_add(2, y, self.w - 4, 1, ("shop", k))
             if y > self.h - 3:
                 break
             sel = k == self.shop_sel
@@ -1962,6 +2105,7 @@ class Game:
                          else (C("faint") if broke else C("text")))
                 self.put(oy + i * 2, bx + 29, cut(ch["efe"], bw - 32),
                          C("red", dim=True) if broke else C("dim"))
+                self.hot_add(bx + 3, oy + i * 2, bw - 6, 1, ("event", i))
             self.hint("arrows choose   enter decide")
         else:
             lines = wrap(self.event_msg, bw - 8)
@@ -2026,6 +2170,7 @@ class Game:
 
     # -------------------------------------------------------- end screens --
     def draw_victory(self):
+        self.hot_add(0, 0, self.w, self.h, ("endscreen",))
         f = self.final
         for a in self.ash:
             if 0 <= int(a[1]) < self.h:
@@ -2048,6 +2193,7 @@ class Game:
         self.center(self.h - 2, "enter title   \u00b7   r new run", C("faint"))
 
     def draw_gameover(self):
+        self.hot_add(0, 0, self.w, self.h, ("endscreen",))
         f = self.final
         art = banner("YOU DIED")
         y0 = 4
@@ -2163,9 +2309,13 @@ class Game:
             tag = (f"{cd['atk'] + cd['up']}/{cd['hp'] + cd['up']}"
                    if cd["kind"] == "minion" else "SPELL")
             self.put(cy, cx + colw - 8, tag, C("dim"))
+            if sel >= 0:
+                self.hot_add(cx - 1, cy, colw - 1, 1, ("pick", i))
         if len(cards) == 0:
             self.put(y + 2, x + 2, "empty", C("dim"))
         self.put(y + hgt - 2, x + 3, cut(hint, wdt - 6), C("faint"))
+        if sel < 0:
+            self.hot_add(x, y, wdt, hgt, ("close",))
 
     def draw_log(self):
         wdt = min(88, self.w - 6)
@@ -2209,6 +2359,7 @@ class Game:
                      (GL["arrow"] + " " + p["name"]) if sel else ("  " + p["name"]),
                      C(p["color"], bold=True) if sel else C("text"))
             self.put(y + 2 + i * 2, x + 26, cut(p["desc"], wdt - 28), C("dim"))
+            self.hot_add(x + 2, y + 2 + i * 2, wdt - 4, 1, ("potion", i))
         self.put(y + hgt - 2, x + 3, "arrows choose   enter drink   esc close",
                  C("faint"))
 
@@ -2224,6 +2375,7 @@ class Game:
             self.put(y + 5 + i, x + 5,
                      (GL["arrow"] + " " + lab) if sel else ("  " + lab),
                      C("red" if i == 0 else "gold", bold=True) if sel else C("text"))
+            self.hot_add(x + 4, y + 5 + i, wdt - 8, 1, ("confirm", i))
         self.put(y + hgt - 2, x + 3, "y / n   or arrows + enter", C("faint"))
 
     def draw_relics(self):
@@ -2237,6 +2389,7 @@ class Game:
                      C(rl["color"], bold=True))
             self.put(y + 2 + i, x + 27, cut(rl["desc"], wdt - 30), C("dim"))
         self.put(y + hgt - 2, x + 3, "esc to close", C("faint"))
+        self.hot_add(x, y, wdt, hgt, ("close",))
 
     def draw_pause(self):
         wdt = 46
@@ -2249,6 +2402,7 @@ class Game:
             self.put(y + 2 + i, x + 4,
                      (GL["arrow"] + " " + it) if sel else ("  " + it),
                      C("gold", bold=True) if sel else C("text"))
+            self.hot_add(x + 3, y + 2 + i, wdt - 6, 1, ("pause", i))
         if self.run is not None:
             self.put(y + 10, x + 3,
                      f"{CLASSES[self.run.cls]['name']}  \u00b7  "
@@ -2463,6 +2617,9 @@ class Game:
 
     def handle(self, ch):
         if ch == curses.KEY_RESIZE:
+            return
+        if ch == curses.KEY_MOUSE:
+            self.on_mouse()
             return
         if self.overlay and self.state not in ("title", "help", "victory",
                                               "gameover"):

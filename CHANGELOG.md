@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.1.0
+
+- Mouse support: click cards, minions, the enemy hero, END TURN, menus, map
+  nodes, rewards, shop rows, rest options and events. Keyboard still works.
+
 ## 2.0.1
 
 - Fixed a crash when an event upgraded, duplicated or removed a card.
