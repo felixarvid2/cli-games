@@ -73,14 +73,36 @@ Minimum size is 78x24; 100x30 or larger looks best.
 - **Taunt** minions must be attacked first; **Divine Shield** absorbs the first
   hit; **Poisonous** destroys anything it damages.
 - **Battlecry** triggers when a minion is played, **Deathrattle** when it dies.
+- **Combo** cards get a bonus when they are the second or later card you play
+  in the same turn. The hint bar shows `COMBO READY` once the chain is live.
+- **Windfury** minions attack twice; **Rush** minions can attack minions the
+  turn they arrive but never heroes.
 - You draw 5 cards at the start and 2 per turn. Enemy heroes play from their own
   deck and attack with their board.
 - Reduce the enemy hero to 0. If your hero falls, the run ends.
 
+### Synergies and combos
+
+- **War Banner** gives every minion +1 Attack, including ones you summon later;
+  stack it with **Reinforcements** and **Quartermaster** for a wide board.
+- **Venom Aura** gives your whole board Poisonous, so even 1/1 Recruits trade
+  with anything.
+- **Pyromaniac** and **Mana Wyrm** reward spell chains: cheap spells clear the
+  enemy board and grow your wyrm at the same time.
+- **Lightwarden** gains +2 Attack whenever your minions are healed - pair it
+  with **Circle of Healing** or **Divine Light**.
+- **Inner Fire** turns a high-Health minion (The Wall, Sanctuary, Tirion) into a
+  huge attacker.
+- **Eviscerate**, **SI:7 Agent**, **Last Stand**, **Reinforcements** and
+  **Circle of Healing** all have Combo payoffs. Play a cheap card first.
+- **Tirion** leaves a Divine Shielded 3/3 Ashbringer behind, and **Divine
+  Shield** plus **Hand of Protection** lets you attack without trading away
+  your board.
+
 ## Five classes
 
-Every class has **20 cards** (16 minions + 4 spells) and its own starter deck.
-No card is shared between classes.
+Every class has **23 cards** and its own starter deck. No card is shared
+between classes.
 
 | Class | Identity | Starter deck |
 | --- | --- | --- |
@@ -92,13 +114,13 @@ No card is shared between classes.
 
 ## What's in the spire
 
-- **100 class cards + 10 tokens** (Shivs, Recruits, Soldiers, ...).
+- **115 class cards + 11 tokens** (Shivs, Recruits, Soldiers, ...).
 - **19 enemy heroes** with their own decks, including four keepers:
   the Ash Warden, the Hollow Choir, the Cinder King and the First Flame.
 - **28 relics**, **13 potions**, **13 events**, **17 achievements**.
 - Three acts of seven floors, plus the secret **Ember Heart** (four floors)
   unlocked after your first win.
-- **Ascension**, **daily runs**, seed entry and a codex of 177 entries.
+- **Ascension**, **daily runs**, seed entry and a codex of 192 entries.
 - Atomic saves with backups, schema migration and a crash log.
 
 ## How a run works

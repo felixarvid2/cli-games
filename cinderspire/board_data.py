@@ -17,21 +17,28 @@ the board engine interprets:
     ("destroy_target")     spells only
     ("buff_target", a, h)  spells only (friendly minion)
     ("give_kw", kw)        spells only (friendly minion)
+    ("banner",)            your minions gain +1 Attack (now and later)
+    ("venom_aura",)        your minions gain Poisonous (now and later)
+    ("taunt_board",)       give your minions Taunt
+    ("buff_recruits", a, h) buff your Recruits
+    ("set_atk_hp",)        set your highest-Health minion's Attack to its HP
+    ("random_split", n)    n damage split randomly among enemies
 """
 
 BOARD_CARDS = {}
 
 
 def mn(cid, name, cls, cost, atk, hp, kw=(), text="", bc=None, dr=None,
-       token=False):
+       combo=None, token=False):
     BOARD_CARDS[cid] = dict(
         id=cid, name=name, cls=cls, cost=cost, atk=atk, hp=hp,
-        kw=set(kw), text=text, bc=bc, dr=dr, kind="minion", token=token)
+        kw=set(kw), text=text, bc=bc, dr=dr, combo=combo,
+        kind="minion", token=token)
 
 
-def sp(cid, name, cls, cost, text, effects):
+def sp(cid, name, cls, cost, text, effects, combo=None):
     BOARD_CARDS[cid] = dict(id=cid, name=name, cls=cls, cost=cost, atk=0, hp=0,
-                            kw=set(), text=text, bc=None, dr=None,
+                            kw=set(), text=text, bc=None, dr=None, combo=combo,
                             kind="spell", effects=list(effects), token=False)
 
 
@@ -46,6 +53,8 @@ mn("wolf", "Wolf", "neutral", 2, 2, 1, ("charge",), token=True)
 mn("whelp", "Whelp", "neutral", 1, 1, 2, token=True)
 mn("golem_t", "Golem", "neutral", 3, 3, 3, token=True)
 mn("spirit", "Spirit", "neutral", 2, 2, 1, token=True)
+mn("ashbringer_t", "Ashbringer", "paladin", 5, 3, 3, ("divine_shield",),
+   token=True)
 
 # ------------------------------------------------------------------ Warden --
 mn("w_ashguard", "Ashguard", "warden", 1, 1, 3, ("taunt",))
@@ -64,6 +73,15 @@ mn("w_juggernaut", "Juggernaut", "warden", 5, 8, 6)
 mn("w_colossus", "Colossus", "warden", 6, 9, 9)
 mn("w_taskmaster", "Taskmaster", "warden", 1, 2, 1, bc=[("buff_self", 1, 1)])
 mn("w_bloodrager", "Bloodrager", "warden", 3, 4, 3, ("charge",))
+mn("w_banner", "War Banner", "warden", 2, 1, 3,
+   "Battlecry: Your minions get +1 Attack, and new minions keep coming "
+   "in stronger.", bc=[("banner",), ("buff_board", 1, 0)])
+sp("w_last_stand", "Last Stand", "warden", 2,
+   "Give your minions +2/+2. Combo: also give them Taunt.",
+   [("buff_board", 2, 2)], combo=[("taunt_board",)])
+sp("w_reinforcements", "Reinforcements", "warden", 3,
+   "Summon three 1/1 Recruits. Combo: give your Recruits +1/+1.",
+   [("summon", "recruit", 3)], combo=[("buff_recruits", 1, 1)])
 sp("w_cleave", "Cleave", "warden", 2, "Deal 2 damage to all enemy minions.",
    [("aoe", 2)])
 sp("w_execute", "Execute", "warden", 3, "Deal 5 damage to a minion.",
@@ -92,6 +110,15 @@ mn("a_venom", "Venom", "ashblade", 4, 4, 4, ("poisonous",))
 mn("a_daggermaster", "Daggermaster", "ashblade", 5, 6, 5)
 mn("a_trickster", "Trickster", "ashblade", 2, 1, 3, bc=[("draw", 1)])
 mn("a_nightmare", "Nightmare", "ashblade", 6, 7, 6)
+mn("a_si7", "SI:7 Agent", "ashblade", 3, 3, 3,
+   "Combo: Deal 2 damage to a random enemy minion.",
+   combo=[("dmg_random", 2)])
+sp("a_eviscerate", "Eviscerate", "ashblade", 2,
+   "Deal 3 damage. Combo: 6 damage instead.",
+   [("dmg_target", 3)], combo=[("dmg_target", 3)])
+mn("a_venom_aura", "Venom Aura", "ashblade", 4, 3, 4,
+   "Battlecry: Your minions have Poisonous.",
+   bc=[("venom_aura",)])
 sp("a_backstab", "Backstab", "ashblade", 1, "Deal 2 damage to a minion.",
    [("dmg_target", 2)])
 sp("a_fan", "Fan of Knives", "ashblade", 2,
@@ -119,6 +146,13 @@ mn("e_pyromancer", "Pyromancer", "emberwright", 2, 2, 2, bc=[("dmg_hero", 2)])
 mn("e_dynamo", "Dynamo", "emberwright", 3, 2, 3, bc=[("mana", 2)])
 mn("e_overload", "Overload", "emberwright", 4, 5, 5)
 mn("e_ward", "Ward", "emberwright", 1, 0, 3, ("taunt",))
+mn("e_pyromaniac", "Pyromaniac", "emberwright", 2, 2, 3,
+   "Whenever you cast a spell, deal 1 damage to all enemy minions.")
+mn("e_manawyrm", "Mana Wyrm", "emberwright", 1, 1, 3,
+   "Whenever you cast a spell, gain +1 Attack.")
+sp("e_arcane_missiles", "Arcane Missiles", "emberwright", 1,
+   "Deal 3 damage randomly split among enemies.",
+   [("random_split", 3)])
 sp("e_fireball", "Fireball", "emberwright", 4, "Deal 6 damage.",
    [("dmg_target", 6)])
 sp("e_flamewave", "Flame Wave", "emberwright", 3,
@@ -145,6 +179,14 @@ mn("p_ascendant", "Ascendant", "pilgrim", 5, 5, 6)
 mn("p_martyr", "Martyr", "pilgrim", 1, 2, 1, dr=[("heal", 3)])
 mn("p_beacon", "Beacon", "pilgrim", 2, 1, 2, bc=[("buff_board", 0, 1)])
 mn("p_dawn", "Dawn", "pilgrim", 5, 4, 8, ("taunt",))
+mn("p_lightwarden", "Lightwarden", "pilgrim", 1, 1, 2,
+   "Whenever your minions are healed, gain +2 Attack.")
+sp("p_inner_fire", "Inner Fire", "pilgrim", 1,
+   "Set your highest-Health minion's Attack equal to its Health.",
+   [("set_atk_hp",)])
+sp("p_circle", "Circle of Healing", "pilgrim", 2,
+   "Restore 4 Health to your minions. Combo: Draw a card.",
+   [("heal_all", 4)], combo=[("draw", 1)])
 sp("p_prayer", "Prayer", "pilgrim", 1, "Restore 4 health.", [("heal", 4)])
 sp("p_sanctuary_s", "Sanctuary", "pilgrim", 3, "Restore 8 health.",
    [("heal", 8)])
@@ -177,6 +219,15 @@ mn("sh_champion", "Champion", "paladin", 5, 5, 5,
 mn("sh_light", "The Light", "paladin", 6, 7, 7)
 mn("sh_captain", "Recruit Captain", "paladin", 3, 3, 3,
    bc=[("summon", "recruit", 1)])
+mn("sh_quartermaster", "Quartermaster", "paladin", 4, 3, 3,
+   "Battlecry: Give your Recruits +2/+2.",
+   bc=[("buff_recruits", 2, 2)])
+mn("sh_tirion", "Tirion", "paladin", 6, 6, 6, ("divine_shield",),
+   "Divine Shield. Deathrattle: Summon a 3/3 Ashbringer with Divine Shield.",
+   dr=[("summon", "ashbringer_t", 1)])
+sp("sh_hand_protection", "Hand of Protection", "paladin", 1,
+   "Give your minions Taunt. Draw a card.",
+   [("taunt_board",), ("draw", 1)])
 sp("sh_reinforce", "Reinforce", "paladin", 2,
    "Summon two 1/1 Recruits.", [("summon", "recruit", 2)])
 sp("sh_consecration", "Consecration", "paladin", 4,

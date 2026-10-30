@@ -221,6 +221,7 @@ class Game:
         self.toast = None
         self.toast_queue = []
         self.overlay = None
+        self.detail = None
         self.picker = None
         self.menu = 0
         self.help_from = "title"
@@ -1284,7 +1285,8 @@ class Game:
                 head += (f"{d['atk'] + inst.get('up', 0)}/"
                          f"{d['hp'] + inst.get('up', 0)} ")
                 if d["kw"]:
-                    head += " ".join(sorted(d["kw"])).upper() + " "
+                    head += (" ".join(sorted(d["kw"])).upper()
+                             .replace("_", " ") + " ")
             for i, ln in enumerate(wrap(head + body, self.w - 6)[:1]):
                 self.put(log1 + i, 3, ln, C("gold", bold=True))
         else:
@@ -1304,7 +1306,9 @@ class Game:
             hint = f"[{tgt}] ENTER attack  0-5 target  TAB rows"
         else:
             hint = f"[{tgt}] 0-5 pick  ENTER attack  TAB rows"
-        self.hint(hint + "  Q potion  V text  ESC")
+        if cb.played_this_turn:
+            hint = "COMBO READY  " + hint
+        self.hint(hint + "  Q potion  V card  ESC")
 
     def draw_side(self, cb, side, y):
         board = cb.pboard if side == "player" else cb.eboard
@@ -1415,7 +1419,7 @@ class Game:
             stats = f"{d['atk'] + up} / {d['hp'] + up}"
             self.put(y + 3, x + 2, stats.ljust(w - 4),
                      C("gold", bold=True) if playable else C("dim"))
-            kws = " ".join(sorted(d["kw"])).upper()
+            kws = " ".join(sorted(d["kw"])).upper().replace("_", " ")
             if up:
                 kws = (kws + f" +{up}").strip()
             self.put(y + 4, x + 2, cut(kws, w - 4), C("cyan", dim=True))
@@ -1495,10 +1499,9 @@ class Game:
         elif ch == ord("r"):
             self.overlay = "relics"
         elif ch in (ord("v"), ord("V")):
-            self.tip_pinned = not self.tip_pinned
-            self.card_tip_until = time.monotonic() + 3.0
-        elif ch == ord("L"):
-            self.overlay = "log"
+            if cb.hand:
+                self.detail = cb.hand[min(self.sel, len(cb.hand) - 1)]
+                self.overlay = "carddetail"
         elif ch == ord("?"):
             self.overlay = "glossary"
         elif ch in (ord("q"), ord("Q")):
@@ -2259,6 +2262,8 @@ class Game:
                                 self.picker["title"], "arrows choose   "
                                 "enter confirm   esc cancel",
                                 valid=self.picker["valid"])
+        elif self.overlay == "carddetail":
+            self.draw_card_detail()
 
     def overlay_box(self, hgt, wdt, title):
         y = max(1, (self.h - hgt) // 2)
@@ -2267,6 +2272,32 @@ class Game:
         self.box(y, x, hgt, wdt, C("gold"), double=True, title=title,
                  tattr=C("gold", bold=True))
         return y, x
+
+    def draw_card_detail(self):
+        inst = self.detail
+        if not inst:
+            self.overlay = None
+            return
+        d = BOARD_CARDS[inst["id"]]
+        up = inst.get("up", 0)
+        wdt = min(64, self.w - 6)
+        hgt = min(self.h - 4, 16)
+        y, x = self.overlay_box(hgt, wdt, d["name"].upper())
+        col = "purple" if d["kind"] == "spell" else "green"
+        head = f"{d['cost']} mana"
+        if d["kind"] == "minion":
+            head += f"   {d['atk'] + up}/{d['hp'] + up}"
+            if d["kw"]:
+                head += ("   " + " ".join(sorted(d["kw"]))
+                         .upper().replace("_", " "))
+        self.put(y + 1, x + 3, head, C("gold", bold=True))
+        row = y + 3
+        for line in wrap(d["text"], wdt - 8)[:hgt - 6]:
+            self.put(row, x + 4, line, C("text"))
+            row += 1
+        self.put(y + hgt - 2, x + 3,
+                 "any key closes", C("faint"))
+        self.hot_add(x, y, wdt, hgt, ("close",))
 
     def draw_card_list(self, cards, sel, title, hint, valid=None, sort=True):
         wdt = min(96, self.w - 6)
@@ -2330,12 +2361,16 @@ class Game:
         rows = [
             ("Taunt", "Enemies must attack this minion first."),
             ("Charge", "Can attack the turn it is summoned."),
+            ("Rush", "Attacks minions at once, but never heroes."),
+            ("Windfury", "Attacks twice per turn."),
             ("Divine Shield", "Absorbs the first damage it takes."),
             ("Poisonous", "Destroys any minion it damages."),
             ("Battlecry", "Triggers when the card is played."),
             ("Deathrattle", "Triggers when the minion dies."),
+            ("Combo", "Bonus if you already played a card this turn."),
+            ("Lifesteal", "Damage dealt also heals your hero."),
             ("Mana", "Grows by one each turn, up to 8."),
-            ("Board", "Five minions per side; minions attack once."),
+            ("Board", "Five minions per side; one attack per turn."),
         ]
         wdt = min(78, self.w - 6)
         hgt = len(rows) + 5
@@ -2438,6 +2473,9 @@ class Game:
         return 0
 
     def key_overlay(self, ch):
+        if self.overlay == "carddetail":
+            self.overlay = None
+            return
         if self.overlay == "deck":
             if ch in (27, 10, 13, curses.KEY_ENTER, ord(" "), ord("d")):
                 self.overlay = None

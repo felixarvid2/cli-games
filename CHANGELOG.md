@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.2.0
+
+- 15 new cards, three per class, built around combos and board synergies:
+  War Banner, Last Stand, Reinforcements, SI:7 Agent, Eviscerate, Venom Aura,
+  Pyromaniac, Mana Wyrm, Arcane Missiles, Lightwarden, Inner Fire, Circle of
+  Healing, Quartermaster, Hand of Protection and Tirion.
+- **Combo**: the second and later card you play in a turn triggers bonus
+  effects. The hint bar shows `COMBO READY` while the chain is live.
+- New keywords and triggers: Windfury (two attacks), Rush (minions only),
+  Poisonous auras, spell-cast triggers, healing triggers and Lifesteal.
+- Press `V` on a hand card for a full-text card view.
+- Fixed targeted spells (Fireball, Eviscerate, ...) crashing when aimed at the
+  enemy hero.
+
 ## 2.1.0
 
 - Mouse support: click cards, minions, the enemy hero, END TURN, menus, map

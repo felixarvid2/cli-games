@@ -36,6 +36,7 @@ class Minion:
         self.kw = set(d["kw"])
         self.bc = d.get("bc")
         self.dr = d.get("dr")
+        self.combo = d.get("combo")
         self.divine = "divine_shield" in self.kw
         self.taunt = "taunt" in self.kw
         self.poisonous = "poisonous" in self.kw
@@ -58,6 +59,10 @@ class Minion:
             kws.append("POISON")
         if "charge" in self.kw:
             kws.append("CHARGE")
+        if "rush" in self.kw:
+            kws.append("RUSH")
+        if "windfury" in self.kw:
+            kws.append("WIND")
         return kws
 
 
@@ -106,7 +111,10 @@ class BoardCombat:
             pen=0,
             spells=0,
             killed=0,
+            banner=False,
+            venom_aura=False,
         )
+        self.played_this_turn = 0
         self.start()
 
     # -- helpers -----------------------------------------------------------
@@ -153,12 +161,20 @@ class BoardCombat:
                        atk_bonus=self.flags["atk_aura"] if side == "player" else 0,
                        hp_bonus=self.flags["hp_aura"] if side == "player" else 0)
             m.summoned = self.turn
-            if "charge" in m.kw:
+            if "charge" in m.kw or "rush" in m.kw:
                 m.ready = True
+            if side == "player":
+                if self.flags.get("banner"):
+                    m.atk += 1
+                if self.flags.get("venom_aura"):
+                    m.poisonous = True
+                    m.kw.add("poisonous")
             board.append(m)
             self.log(f"{side.title()} summons {m.name}.", "green")
             if m.bc:
                 self.run_ops(side, m, m.bc)
+            return m
+        return None
 
     # -- ops ---------------------------------------------------------------
     def run_ops(self, side, src, ops, target=None):
@@ -190,6 +206,10 @@ class BoardCombat:
                     if m.alive:
                         m.hp = min(m.max_hp, m.hp + a[0])
                 self.log(f"Friendly minions heal {a[0]}.", "green")
+                for m in board:
+                    if m.alive and m.cid == "p_lightwarden":
+                        m.atk += 2
+                        self.log("Lightwarden grows stronger.", "gold")
             elif op == "draw":
                 self.draw(a[0], side)
                 self.log(f"{side.title()} draws {a[0]}.", "dim")
@@ -211,7 +231,8 @@ class BoardCombat:
                         m.hp += a[1]
                 self.log("Friendly minions are buffed.", "gold")
             elif op == "dmg_target" and target is not None:
-                side_t, idx = target
+                side_t = target[0]
+                idx = target[1] if len(target) > 1 else 0
                 if side_t == "hero":
                     self.hurt_hero("enemy", a[0], src)
                 elif side_t == "e" and 0 <= idx < len(self.eboard) \
@@ -221,7 +242,8 @@ class BoardCombat:
                         and self.pboard[idx].alive:
                     self.hurt_minion(self.pboard[idx], a[0], src)
             elif op == "destroy_target" and target is not None:
-                side_t, idx = target
+                side_t = target[0]
+                idx = target[1] if len(target) > 1 else 0
                 if side_t == "e" and 0 <= idx < len(self.eboard) \
                         and self.eboard[idx].alive:
                     self.kill(self.eboard[idx])
@@ -233,6 +255,41 @@ class BoardCombat:
                     m.atk += a[0]
                     m.max_hp += a[1]
                     m.hp += a[1]
+            elif op == "banner":
+                self.flags["banner"] = True
+            elif op == "venom_aura":
+                self.flags["venom_aura"] = True
+                board = self.pboard if side == "player" else self.eboard
+                for m in board:
+                    if m.alive:
+                        m.poisonous = True
+                        m.kw.add("poisonous")
+            elif op == "taunt_board":
+                board = self.pboard if side == "player" else self.eboard
+                for m in board:
+                    if m.alive:
+                        m.taunt = True
+            elif op == "buff_recruits":
+                board = self.pboard if side == "player" else self.eboard
+                for m in board:
+                    if m.alive and m.cid == "recruit":
+                        m.atk += a[0]
+                        m.max_hp += a[1]
+                        m.hp += a[1]
+            elif op == "set_atk_hp":
+                board = self.pboard if side == "player" else self.eboard
+                alive = [m for m in board if m.alive]
+                if alive:
+                    m = max(alive, key=lambda x: x.hp)
+                    m.atk = max(1, m.hp)
+            elif op == "random_split":
+                for _ in range(a[0]):
+                    alive = self.enemy_alive() if side == "player" else self.player_alive()
+                    if alive:
+                        self.hurt_minion(self.rng.choice(alive), 1, src)
+                    else:
+                        self.hurt_hero("enemy" if side == "player" else "player",
+                                       1, src)
             elif op == "give_kw":
                 board = self.pboard if side == "player" else self.eboard
                 alive = [m for m in board if m.alive]
@@ -256,6 +313,9 @@ class BoardCombat:
         m.hp -= n
         if m.owner == "enemy":
             self.damage_dealt += n
+        if src is not None and "lifesteal" in getattr(src, "kw", ()):
+            hero = self.player if getattr(src, "owner", "") == "player" else self.enemy
+            hero.hp = min(hero.max_hp, hero.hp + n)
         self.popup(m, f"-{n}", "red")
         if src is not None and getattr(src, "poisonous", False):
             m.hp = 0
@@ -269,6 +329,9 @@ class BoardCombat:
         hero.hp -= n
         if side == "enemy":
             self.damage_dealt += n
+        if src is not None and "lifesteal" in getattr(src, "kw", ()):
+            own = self.player if getattr(src, "owner", "") == "player" else self.enemy
+            own.hp = min(own.max_hp, own.hp + n)
         self.popup(hero, f"-{n}", "red")
         self.log(f"{hero.name} takes {n} damage.", "red")
         if side == "player":
@@ -335,6 +398,7 @@ class BoardCombat:
 
     def start_player_turn(self):
         self.turn += 1
+        self.played_this_turn = 0
         self.player.max_mana = min(MAX_MANA, 2 + self.turn)
         self.player.mana = self.player.max_mana + self.flags["mana_bonus"]
         if "sundial" in self.relics and self.turn % 3 == 0:
@@ -440,19 +504,39 @@ class BoardCombat:
             return False
         c = self.hand.pop(i)
         d = BOARD_CARDS[c["id"]]
+        combo = self.played_this_turn > 0
         self.player.mana -= d["cost"]
         if d["kind"] == "minion":
             up = c.get("up", 0)
-            self.summon("player", c["id"], 1, up)
+            m = self.summon("player", c["id"], 1, up)
+            if combo and d.get("combo") and m is not None:
+                self.log(f"Combo! {d['name']}.", "gold")
+                self.run_ops("player", m, d["combo"], target)
         else:
             self.spells_played += 1
             self.run_ops("player", None, d["effects"], target)
+            if combo and d.get("combo"):
+                self.log(f"Combo! {d['name']}.", "gold")
+                self.run_ops("player", None, d["combo"], target)
+            self.spell_triggers()
             if "letter_opener" in self.relics and self.spells_played % 3 == 0:
                 self.hurt_hero("enemy", 2)
             self.discard.append(c)
+        self.played_this_turn += 1
         self.check_over()
         self.compact()
         return True
+
+    def spell_triggers(self):
+        for m in self.player_alive():
+            if m.cid == "e_pyromaniac":
+                for e in list(self.eboard):
+                    if e.alive:
+                        self.hurt_minion(e, 1, m)
+                self.log("Pyromaniac scorches the enemy board.", "gold")
+            elif m.cid == "e_manawyrm":
+                m.atk += 1
+                self.log("Mana Wyrm grows stronger.", "gold")
 
     def use_potion(self, pid, target=None):
         if pid in ("fire", "poison", "steel"):
@@ -498,11 +582,14 @@ class BoardCombat:
         if not a.ready:
             return False
         if target[0] == "hero":
+            if "rush" in a.kw:
+                self.log("Rush minions cannot attack heroes.", "dim")
+                return False
             if any(m.alive and m.taunt for m in self.eboard):
                 self.log("A Taunt minion blocks the way.", "dim")
                 return False
-            a.ready = False
             a.attacks += 1
+            a.ready = a.attacks < a.max_attacks
             self.attacks_played += 1
             self.hurt_hero("enemy", self.attack_damage(a), a)
             self.compact()
@@ -514,8 +601,8 @@ class BoardCombat:
         if any(m.alive and m.taunt for m in self.eboard) and not t.taunt:
             self.log("You must attack a Taunt minion.", "dim")
             return False
-        a.ready = False
         a.attacks += 1
+        a.ready = a.attacks < a.max_attacks
         self.attacks_played += 1
         self.exchange(a, t)
         self.compact()
