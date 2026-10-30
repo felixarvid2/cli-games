@@ -6,6 +6,7 @@ import random
 
 from .data import (ACHIEVEMENTS, BOSSES, CARDS, CLASSES, ELITES, ENCOUNTERS,
                    ENEMIES, EVENTS, POOL, POTIONS, RELICS, STARTERS)
+from .board_data import BOARD_CARDS, STARTER_DECKS, POOL as BPOOL
 
 DATA_DIR = os.path.join(
     os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share")),
@@ -51,10 +52,7 @@ def cdata(c):
 
 
 def can_upgrade(c):
-    base = CARDS[c["id"]]
-    if base.get("multi_up"):
-        return c.get("ups", 0) < 5
-    return not c.get("up")
+    return c.get("up", 0) < 2
 
 
 AUTO_LINES = {
@@ -1177,7 +1175,7 @@ class Run:
         self.hp = 80
         self.gold = 99
         self.cls = cls if cls in CLASSES else "warden"
-        self.deck = [inst(c) for c in STARTERS[self.cls]]
+        self.deck = [inst(c) for c in STARTER_DECKS[self.cls]]
         self.relics = ["burning_blood"]
         self.floor = 0
         self.total_floor = 0
@@ -1209,16 +1207,11 @@ class Run:
     def upgrade_card(self, idx):
         if 0 <= idx < len(self.deck):
             c = self.deck[idx]
-            if CARDS[c["id"]].get("multi_up"):
-                n = c.get("ups", 0)
-                if n >= 5:
-                    return False
-                c["ups"] = n + 1
-                c["up"] = 1
-                return True
-            if not c.get("up"):
-                c["up"] = 1
-                return True
+            n = c.get("up", 0)
+            if n >= 2:
+                return False
+            c["up"] = n + 1
+            return True
         return False
 
     def add_relic(self, rid):
@@ -1280,19 +1273,10 @@ class Run:
 
     # -- rewards -----------------------------------------------------------
     def roll_cards(self, n=3):
-        deck_ids = {c["id"] for c in self.deck}
-        pool = []
-        for i in range(n):
-            r = self.rng.choices(["common", "uncommon", "rare"],
-                                 weights=[58, 34, 8])[0]
-            class_pool = ([c for c in POOL[r]
-                           if CARDS[c].get("cls") in (self.cls, "shared")]
-                          or POOL[r])
-            picks = [c for c in class_pool if c not in deck_ids] or class_pool
-            cid = self.rng.choice(picks)
-            deck_ids.add(cid)
-            pool.append(cid)
-        return pool
+        owned = {c["id"] for c in self.deck}
+        class_pool = BPOOL.get(self.cls, [])
+        picks = [c for c in class_pool if c not in owned] or class_pool
+        return self.rng.sample(picks, min(n, len(picks)))
 
     def make_reward(self, kind):
         gold = self.rng.randint(10, 18) + self.floor * 2 + self.act * 6
@@ -1357,8 +1341,8 @@ class Run:
         scale = 1.0 + 0.10 * self.act
         cards = []
         for cid in self.roll_cards(4):
-            cd = CARDS[cid]
-            base = {"common": 48, "uncommon": 72, "rare": 105}[cd["rarity"]]
+            d = BOARD_CARDS[cid]
+            base = 26 + d["cost"] * 15
             cards.append(dict(cid=cid,
                               price=int(base * scale * self.rng.uniform(0.9, 1.1))))
         relic = self.random_relic()
@@ -1594,7 +1578,7 @@ def _valid_meta(d):
     seen = d.get("seen")
     if not isinstance(seen, dict):
         seen = {}
-    valid = {"cards": set(CARDS), "relics": set(RELICS),
+    valid = {"cards": set(BOARD_CARDS), "relics": set(RELICS),
              "potions": set(POTIONS), "enemies": set(ENEMIES)}
     clean = {}
     for kind, pool in valid.items():
@@ -1676,12 +1660,11 @@ def _valid_run(d):
     d["total_floor"] = max(0, min(TOTAL_FLOORS, int(d["total_floor"])))
     deck = []
     for c in d["deck"]:
-        if isinstance(c, dict) and c.get("id") in CARDS:
-            up = 1 if c.get("up") else 0
-            deck.append({"id": c["id"], "up": up,
-                         "ups": max(0, min(5, int(c.get("ups", 0) or 0)))})
+        if isinstance(c, dict) and c.get("id") in BOARD_CARDS:
+            up = max(0, min(2, int(c.get("up", 0) or 0)))
+            deck.append({"id": c["id"], "up": up})
     if not deck:
-        deck = [{"id": "w_strike", "up": 0}]
+        deck = [{"id": "w_ashguard", "up": 0}]
     d["deck"] = deck
     d["relics"] = [r for r in d["relics"] if r in RELICS]
     d["potions"] = [p for p in d.get("potions", []) if p in POTIONS][:3]

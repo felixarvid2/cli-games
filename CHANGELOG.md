@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.0.0
+
+- Complete combat redesign: Hearthstone-like board with heroes, growing mana,
+  five minion slots per side, and Taunt / Charge / Divine Shield / Poisonous /
+  Battlecry / Deathrattle.
+- 100 new class cards (20 per class, 16 minions + 4 spells) and 10 tokens.
+- Enemy heroes with their own decks replace intent-based single enemies.
+- New board UI: row cursor, attack-all, minion stats, full card text.
+- Rewards, shops, deck, codex, relics and potions rebuilt around board play.
+
 ## 1.5.1
 
 - Card text is no longer cut off: cards show five lines and the selected

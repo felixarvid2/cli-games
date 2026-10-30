@@ -15,6 +15,8 @@ from .core import (ACT_NAMES, ACTS, CARDS, DATA_DIR, FLOORS, NODE_TYPES,
                    cdata, clear_run, ctext, load_best, load_run, run_from_dict,
                    run_to_dict, save_best, save_run, st)
 from .data import ACHIEVEMENTS, BOSSES, CLASSES, ENEMIES, POTIONS, TIPS
+from .board import BoardCombat, enemy_for
+from .board_data import BOARD_CARDS, ENEMY_HEROES, STARTER_DECKS
 
 ANIM = max(0.0, float(os.environ.get("CINDERSPIRE_ANIM", "1")))
 DEFAULT_SETTINGS = {"anim": ANIM, "confirm_end": True, "flash": True,
@@ -244,6 +246,9 @@ class Game:
         self.confirm_end_until = 0.0
         self.card_tip_until = 0.0
         self.tip_pinned = True
+        self.row = 0
+        self.bsel = 0
+        self.esel = 0
         self.event = None
         self.event_stage = 0
         self.event_msg = ""
@@ -385,17 +390,6 @@ class Game:
                     e[1] = self.h - 1
                     e[0] = self.rng.uniform(0, self.w)
         if self.cb:
-            for f in [self.cb.player] + self.cb.enemies:
-                cur = self.disp_hp.get(id(f))
-                if cur is None:
-                    self.disp_hp[id(f)] = float(f.hp)
-                elif abs(cur - f.hp) > 0.05:
-                    step = max(18.0, f.max_hp * 2.0) * dt
-                    self.disp_hp[id(f)] = (cur - min(step, cur - f.hp)
-                                           if cur > f.hp else
-                                           cur + min(step, f.hp - cur))
-                else:
-                    self.disp_hp[id(f)] = float(f.hp)
             for k in list(self.cb.popups):
                 self.cb.popups[k][2] -= dt
                 if self.cb.popups[k][2] <= 0:
@@ -523,7 +517,8 @@ class Game:
         if self.best.get("best"):
             s = f"BEST RUN  {self.best['best']}   ·   WINS {self.best.get('wins', 0)}"
             self.center(self.h - 3, s, C("dim"))
-        self.put(self.h - 1, self.w - 8, "v1.0", C("faint"))
+        self.put(self.h - 1, self.w - 2 - len(__version__) - 1,
+                 "v" + __version__, C("faint"))
         self.center(self.h - 1, "arrows to choose  ·  enter to confirm",
                     C("faint"))
 
@@ -608,16 +603,18 @@ class Game:
         tab = self.codex_tab
         seen = self.best["seen"]
         if tab == 0:
-            order = {"attack": 0, "skill": 1, "power": 2}
+            order = {"minion": 0, "spell": 1}
             corder = {c: n for n, c in enumerate(self.CLASS_ORDER)}
-            ids = sorted((i for i in CARDS
-                          if CARDS[i]["rarity"] not in ("status", "token")),
-                         key=lambda i: (corder.get(CARDS[i].get("cls"), 9),
-                                        order.get(CARDS[i]["type"], 3),
-                                        CARDS[i]["cost"], CARDS[i]["name"]))
-            return [dict(key=i, name=CARDS[i]["name"],
-                         short=(f"{'X' if CARDS[i]['cost'] < 0 else CARDS[i]['cost']}"
-                                f" {CARDS[i]['type'][0].upper()}")
+            ids = sorted((i for i in BOARD_CARDS
+                          if not BOARD_CARDS[i]["token"]
+                          and BOARD_CARDS[i]["cls"] in self.CLASS_ORDER),
+                         key=lambda i: (corder.get(BOARD_CARDS[i].get("cls"), 9),
+                                        order.get(BOARD_CARDS[i]["kind"], 2),
+                                        BOARD_CARDS[i]["cost"],
+                                        BOARD_CARDS[i]["name"]))
+            return [dict(key=i, name=BOARD_CARDS[i]["name"],
+                         short=(f"{BOARD_CARDS[i]['cost']} "
+                                f"{'M' if BOARD_CARDS[i]['kind'] == 'minion' else 'S'}")
                          if i in seen["cards"] else "",
                          seen=i in seen["cards"]) for i in ids]
         if tab == 1:
@@ -631,23 +628,24 @@ class Game:
                          short="POTION" if i in seen["potions"] else "",
                          seen=i in seen["potions"]) for i in sorted(POTIONS)]
         if tab == 3:
-            return [dict(key=i, name=ENEMIES[i]["name"],
-                         short=("BOSS" if ENEMIES[i].get("ai") == "boss"
-                                else "MOB") if i in seen["enemies"] else "",
-                         seen=i in seen["enemies"])
-                    for i in sorted(ENEMIES, key=lambda e: ENEMIES[e]["name"])]
+            return [dict(key=i, name=h["name"],
+                         short=("BOSS" if h.get("boss") else
+                                "ELITE" if h.get("elite") else "MOB"),
+                         seen=True)
+                    for i, h in sorted(enumerate(ENEMY_HEROES),
+                                       key=lambda kv: kv[1]["name"])]
         return [dict(key=i, name=ACHIEVEMENTS[i]["name"], short="",
                      seen=i in self.best["achievements"])
                 for i in sorted(ACHIEVEMENTS, key=lambda a: ACHIEVEMENTS[a]["name"])]
 
     def codex_totals(self):
         seen = self.best["seen"]
-        codex_cards = sum(1 for c in CARDS.values()
-                          if c["rarity"] not in ("status", "token"))
+        codex_cards = sum(1 for c in BOARD_CARDS.values()
+                          if not c["token"] and c["cls"] in self.CLASS_ORDER)
         return [(len(seen["cards"]), codex_cards),
                 (len(seen["relics"]), len(RELICS)),
                 (len(seen["potions"]), len(POTIONS)),
-                (len(seen["enemies"]), len(ENEMIES)),
+                (len(ENEMY_HEROES), len(ENEMY_HEROES)),
                 (len(self.best["achievements"]), len(ACHIEVEMENTS))]
 
     def codex_detail(self, e, width):
@@ -656,15 +654,16 @@ class Game:
             return ["Not discovered yet.", "",
                     "Find it in the spire to unlock this entry."]
         if tab == 0:
-            c = CARDS[e["key"]]
-            up = cdata({"id": e["key"], "up": 1})
-            cname = CLASSES.get(c.get("cls"), {}).get("name", "Shared")
-            lines = [f"{c['type'].title()}  \u00b7  {c['rarity'].title()}",
-                     f"{cname}  \u00b7  Cost {c['cost']}"
-                     + ("   (X)" if c["cost"] < 0 else ""), ""]
-            lines += wrap(ctext(cdata({"id": e["key"], "up": 0})), width)
-            lines += ["", "Upgraded:"]
-            lines += wrap(ctext(up), width)
+            c = BOARD_CARDS[e["key"]]
+            cname = CLASSES.get(c.get("cls"), {}).get("name", "Neutral")
+            head = f"{c['kind'].title()}  \u00b7  {cname}  \u00b7  Cost {c['cost']}"
+            lines = [head, ""]
+            if c["kind"] == "minion":
+                lines.append(f"{c['atk']} / {c['hp']}"
+                             + ("   " + " ".join(sorted(c["kw"])).upper()
+                                if c["kw"] else ""))
+                lines.append("")
+            lines += wrap(c["text"] or "No ability.", width)
             return lines
         if tab == 1:
             r = RELICS[e["key"]]
@@ -674,15 +673,12 @@ class Game:
             return [POTIONS[e["key"]]["name"], ""] + \
                 wrap(POTIONS[e["key"]]["desc"], width)
         if tab == 3:
-            d = ENEMIES[e["key"]]
-            lines = [f"HP {d['hp'][0]}-{d['hp'][1]}",
-                     "Keeper" if d.get("ai") == "boss" else "Enemy", "", "Moves:"]
-            for m in d["moves"]:
-                dmg = ""
-                if m["dmg"]:
-                    dmg = f"  {m['dmg']}" + (f"x{m['hits']}" if m["hits"] > 1 else "")
-                lines.append(f"  {m['name']}{dmg}")
-            return lines
+            d = ENEMY_HEROES[e["key"]]
+            kind = ("Keeper" if d.get("boss") else
+                    "Elite" if d.get("elite") else "Enemy")
+            return [f"HP {d['hp']}", kind,
+                    f"{len(d['deck'])} cards in its deck", "",
+                    "It plays minions and attacks with them."]
         a = ACHIEVEMENTS[e["key"]]
         return [a["desc"], "", "Unlocked" if e["seen"] else "Locked"]
 
@@ -815,7 +811,7 @@ class Game:
                     if c.get("cls") == cid
                     and c["rarity"] not in ("status", "token"))
             self.put(y, self.w - 12, f"{n} cards", C("faint"))
-            starter = CARDS[meta["starter"]]["name"]
+            starter = BOARD_CARDS[STARTER_DECKS[cid][-1]]["name"]
             self.put(y + 1, 10, cut(meta["detail"], self.w - 24),
                      C("text" if sel else "dim"))
             self.put(y + 2, 10, f"starts with {starter}", C("faint"))
@@ -1123,334 +1119,178 @@ class Game:
             self.overlay = "pause"
 
     # ------------------------------------------------------------- combat --
+    # ------------------------------------------------------ board combat --
+    def combat_off(self):
+        return max(0, (self.h - 24) // 2)
+
     def draw_combat(self):
         cb = self.cb
         self.draw_header("combat" if cb.kind == "normal" else cb.kind)
+        off = self.combat_off()
+        hero_y = 3 + off
+        eboard_y = 4 + off
+        rule1 = 8 + off
+        pboard_y = 9 + off
+        log1 = 13 + off
+        rule2 = 14 + off
         self.rule(2)
-        self.draw_arena(cb)
-        cards_y, header_y, rule_y, log1, log2, _ = self.layout()
-        low = cb.player.hp <= cb.player.max_hp * 0.25
-        if low and int(self.t * 3) % 2 == 0:
-            self.rule(rule_y, C("red", dim=True))
-        else:
-            self.rule(rule_y)
+        hero_sel = self.row == 2 and self.esel == 0
+        line = (f"{cb.enemy.name.upper()}    HP {cb.enemy.hp}/{cb.enemy.max_hp}"
+                f"    MANA {cb.enemy.mana}/{cb.enemy.max_mana}"
+                f"    HAND {len(cb.ehand)}")
+        self.put(hero_y, 2, ("\u25b6 " if hero_sel else "  ") + line,
+                 C("white", bold=True) if hero_sel else C("red", bold=True))
+        self.draw_side(cb, "enemy", eboard_y)
+        self.rule(rule1)
+        self.draw_side(cb, "player", pboard_y)
         now = time.monotonic()
-        if cb.hand and (self.tip_pinned or now < self.card_tip_until):
-            idx = min(self.sel, len(cb.hand) - 1)
-            cd = cdata(cb.hand[idx])
-            body = ctext(cd).replace("\n", " ")
-            head = f"{cd['name']} ({'X' if cd['cost'] < 0 else cd['cost']}): "
-            lines = wrap(head + body, self.w - 6)
-            for i, line in enumerate(lines[:2]):
-                self.put(log1 + i, 3, line,
-                         C("gold", bold=True) if i == 0 else C("text"))
+        if self.row == 0 and cb.hand and (self.tip_pinned
+                                          or now < self.card_tip_until):
+            inst = cb.hand[min(self.sel, len(cb.hand) - 1)]
+            d = BOARD_CARDS[inst["id"]]
+            body = d["text"].replace("\n", " ")
+            head = f"{d['name']} ({d['cost']}): "
+            if d["kind"] == "minion":
+                head += (f"{d['atk'] + inst.get('up', 0)}/"
+                         f"{d['hp'] + inst.get('up', 0)} ")
+                if d["kw"]:
+                    head += " ".join(sorted(d["kw"])).upper() + " "
+            for i, ln in enumerate(wrap(head + body, self.w - 6)[:1]):
+                self.put(log1 + i, 3, ln, C("gold", bold=True))
         else:
-            for i, (msg, col) in enumerate(cb.logs[-2:]):
-                att = C("gold", bold=True) if msg.startswith("-- Turn") else C(col)
-                self.put(log1 + i, 2, cut(msg, self.w - 4), att)
+            self.put(log1, 2, cut(cb.logs[-1][0], self.w - 4),
+                     C(cb.logs[-1][1]) if cb.logs else C("text"))
         self.draw_hand(cb)
-        self.hint("1-9 play  \u2190\u2192  TAB target  E end  Q potion  "
-                  "V text  L log  ? help  ESC")
-
-    def draw_arena(self, cb):
-        top = 3
-        _, _, _, _, _, bottom = self.layout()
-        if bottom - top < 7:
-            bottom = top + 7
-        n = len(cb.enemies)
-        px = 0
-        panel_w = 17
-        arena_x = panel_w + 1
-        colw = max(14, (self.w - arena_x) // max(1, n))
-        block_h = 8
-        top_block = top + max(0, (bottom - top + 1 - block_h) // 2)
-        art_top = top_block + 1
-        # player panel
-        p = cb.player
-        ptop = top_block
-        self.put(ptop, 2, "YOU", C("white", bold=True))
-        self.put(ptop, 7, f"T{cb.turn}", C("dim"))
-        sprite = [" o ", "/|\\", "/ \\"]
-        for i, line in enumerate(sprite):
-            self.put(ptop + 1 + i, 2, line, C("white", bold=True))
-        self.put(ptop + 4, 2, f"BLK {p.block}", C("blue", bold=True))
-        inc = self.incoming_damage(cb)
-        if inc <= 0:
-            self.put(ptop + 4, 10, "IN 0", C("faint"))
-        elif inc >= p.hp:
-            self.put(ptop + 4, 9, f"IN {inc}!!", C("red", bold=True))
+        if self.row == 0:
+            hint = "1-9 play  A attack all  TAB rows  E end"
+        elif self.row == 1:
+            hint = "ENTER attack  A all  \u2190\u2192 choose  E end"
         else:
-            self.put(ptop + 4, 9, f"IN {inc}", C("orange"))
-        low = p.max_hp and p.hp <= p.max_hp * 0.25
-        blink = low and int(self.t * 3) % 2 == 0
-        self.put(ptop + 5, 2, f"{p.hp}/{p.max_hp}",
-                 C("white", bold=True) if blink else C("red", bold=True))
-        toks = []
-        for key, lab, col in (("str", "STR", "orange"), ("dex", "DEX", "green"),
-                              ("vuln", "VULN", "purple"), ("weak", "WEAK", "purple"),
-                              ("regen", "REGEN", "green"), ("thorns", "THRN", "green"),
-                              ("metallicize", "PLATE", "blue"),
-                              ("demon", "DEMON", "red"), ("berserk", "BERSK", "red"),
-                              ("juggernaut", "JUGG", "orange"),
-                              ("shield", "SHLD", "gold"),
-                              ("aura", "AURA", "orange"),
-                              ("lightbringer", "LBR", "gold")):
-            v = st(p, key)
-            if v:
-                toks.append((f"{lab}{v}", col))
-        sx = ptop + 6
-        cx = 2
-        for txt, col in toks:
-            if cx + len(txt) > panel_w - 1:
-                sx += 1
-                cx = 2
-                if sx > bottom:
-                    break
-            self.put(sx, cx, txt, C(col))
-            cx += len(txt) + 1
-        pop = cb.popups.get(id(p))
-        if pop:
-            self.put(ptop + 1, 9, pop[0], C(pop[1], bold=True))
-        # enemies
-        for i, e in enumerate(cb.enemies):
-            x0 = arena_x + i * colw
-            cx = x0 + colw // 2
-            if not e.alive:
-                if cb.popups.get(id(e)):
-                    self.put(top_block + 2, cx - 1, "\u2620",
-                             C("red", bold=True))
-                else:
-                    self.put(top_block + 2, cx - 4, "· gone ·", C("faint"))
-                continue
-            art = e.defn["art"]
-            start = art_top
-            name_y = start + len(art)
-            m = e.next_move
-            txt, col = self.intent(m, e)
-            targeted = (i == self.tgt)
-            if targeted:
-                txt = GL["arrow"] + " " + txt
-                col = "white"
-            self.put(max(top, start - 1), cx - len(txt) // 2, txt,
-                     C(col, bold=True))
-            sh = 0
-            if id(e) in cb.shake and self.settings.get("shake", True):
-                amp = 2 if cb.shake[id(e)] > 0.28 else 1
-                sh = amp if int(time.monotonic() * 40) % 2 else -amp
-            flashing = (id(e) in cb.flash and self.settings.get("flash", True))
-            for j, line in enumerate(art):
-                self.put(start + j, cx - len(line) // 2 + sh, line,
-                         C(e.color, bold=True, rev=flashing))
-            nattr = (C("white", bold=True) if targeted else
-                     C(e.color, bold=True, dim=e.hp < e.max_hp * 0.25))
-            self.put(name_y, cx - len(e.name) // 2, cut(e.name, colw - 1), nattr)
-            bw = min(14, colw - 12)
-            hp_y = name_y + 1
-            lab = f"{e.hp}/{e.max_hp}"
-            total = bw + 1 + len(lab) + (4 if e.block else 0)
-            bx = cx - total // 2
-            bcol = "red" if (e.max_hp < 100 or e.hp <= e.max_hp * 0.5) \
-                else "orange"
-            self.bar(hp_y, bx, bw, self.disp_hp.get(id(e), e.hp), e.max_hp,
-                     bcol)
-            for tick in range(4, bw, 4):
-                self.put(hp_y, bx + tick, GL["v"], C("faint"))
-            self.put(hp_y, bx + bw + 1, lab, C("text"))
-            if e.block:
-                self.put(hp_y, bx + bw + 2 + len(lab), f"+{e.block}",
-                         C("blue"))
-            bits = []
-            for key, lab, c2 in (("str", "str", "orange"), ("vuln", "vuln", "purple"),
-                                 ("weak", "weak", "purple"), ("poison", "psn", "green"),
-                                 ("ritual", "ritual", "gold")):
-                v = st(e, key)
-                if v:
-                    bits.append(f"{lab} {v}")
-            if bits:
-                s = " ".join(bits)
-                self.put(name_y + 2, max(x0, cx - len(s) // 2),
-                         cut(s, colw - 1), C("purple", dim=True))
-            pop = cb.popups.get(id(e))
-            if pop:
-                self.put(min(start + 1, name_y - 1), cx + 5, pop[0],
-                         C(pop[1], bold=True))
+            hint = "TAB rows  \u2190\u2192 target  E end"
+        self.hint(hint + "  Q potion  V text  ESC")
 
-    def intent(self, m, e=None):
-        if not m:
-            return "---", "dim"
-        if m["kind"] == "attack":
-            dmg = m["dmg"]
-            if e is not None:
-                dmg += st(e, "str")
-                if st(self.cb.player, "vuln") > 0:
-                    dmg = int(dmg * 1.5)
-                if st(e, "weak") > 0:
-                    dmg = int(dmg * 0.75)
-            s = f"ATK {dmg}"
-            if m["hits"] > 1:
-                s += f"x{m['hits']}"
-            if m["block"]:
-                s += f" +{m['block']}BLK"
-            return s, "red"
-        if m["kind"] == "block":
-            return f"BLK {m['block']}", "blue"
-        if m["kind"] == "buff":
-            if m["block"]:
-                return f"BUFF +{m['block']}BLK", "gold"
-            return "BUFF", "gold"
-        if m["kind"] == "debuff":
-            return "HEX", "purple"
-        return m["name"].upper()[:10], "text"
+    def draw_side(self, cb, side, y):
+        board = cb.pboard if side == "player" else cb.eboard
+        w = 14
+        gap = 1
+        total = 5 * w + 4 * gap
+        x0 = max(1, (self.w - total) // 2)
+        for i in range(5):
+            x = x0 + i * (w + gap)
+            if i < len(board):
+                m = board[i]
+                sel = side == "player" and self.row == 1 and self.bsel == i
+                tgt = side == "enemy" and self.esel == i + 1
+                self.draw_minion_tile(y, x, w, m, sel, tgt)
+            else:
+                self.box(y, x, 4, w, C("faint", dim=True))
+                self.put(y + 1, x + 5, "empty", C("faint"))
 
-    def incoming_damage(self, cb):
-        total = 0
-        for e in cb.alive_enemies():
-            m = e.next_move
-            if not m or not m["dmg"]:
-                continue
-            d = m["dmg"] + st(e, "str")
-            if st(cb.player, "vuln") > 0:
-                d = int(d * 1.5)
-            if st(e, "weak") > 0:
-                d = int(d * 0.75)
-            total += max(0, d) * m["hits"]
-        return total
-
-    def mod_dmg(self, cb, cd, target):
-        base = cd["dmg"]
-        if cd["id"] == "body_slam":
-            base = cb.player.block
-        dmg = base + st(cb.player, "str")
-        if cb.relic("twin_fangs"):
-            dmg += 2
-        if target is not None and st(target, "vuln") > 0:
-            dmg = int(dmg * 1.5)
-        if st(cb.player, "weak") > 0:
-            dmg = int(dmg * 0.75)
-        if cb.relic("pen_nib") and (cb.attacks_played + 1) % 10 == 0:
-            dmg *= 2
-        return max(0, dmg)
-
-    def preview(self, cb, cd):
-        if cd["type"] == "attack":
-            alive = cb.alive_enemies()
-            tgt = self.target_obj(cb)
-            if cd["target"] == "all":
-                d = self.mod_dmg(cb, cd, alive[0] if alive else None)
-                return f"{d} DMG ALL"
-            d = self.mod_dmg(cb, cd, tgt)
-            s = f"{d} DMG"
-            if cd["hits"] > 1:
-                s += f"x{cd['hits']}"
-            if tgt is not None and cd["target"] == "enemy":
-                s += f" \u2192 {cut(tgt.name, 16)}"
-            return s
-        if cd["block"]:
-            return f"+{cd['block'] + st(cb.player, 'dex')} BLOCK"
-        return ""
-
-    def target_obj(self, cb):
-        if 0 <= self.tgt < len(cb.enemies) and cb.enemies[self.tgt].alive:
-            return cb.enemies[self.tgt]
-        alive = cb.alive_enemies()
-        return alive[0] if alive else None
+    def draw_minion_tile(self, y, x, w, m, selected, target):
+        if selected:
+            self.box(y, x, 4, w, C("white", bold=True), double=True)
+            attr = C("white", bold=True)
+        else:
+            col = "red" if target else ("green" if m.owner == "player"
+                                        else "purple")
+            self.box(y, x, 4, w, C(col, dim=not target))
+            attr = C("red", bold=True) if target else C("text")
+        stats = f"{m.atk}/{m.hp}"
+        self.put(y + 1, x + 2, stats,
+                 C("gold", bold=True) if m.ready else C("dim", bold=True))
+        kws = []
+        if m.taunt:
+            kws.append("TAUNT")
+        if m.divine:
+            kws.append("DS")
+        if m.poisonous:
+            kws.append("POISON")
+        if "charge" in m.kw:
+            kws.append("CHARGE")
+        if kws:
+            label = " ".join(kws)
+            self.put(y + 1, x + w - 2 - len(label), label,
+                     C("cyan", bold=True))
+        self.put(y + 2, x + 2, cut(m.name, w - 3), attr)
 
     def draw_hand(self, cb):
         h = self.h
-        cards_y, header_y, _, _, _, _ = self.layout()
-        caret_y = h - 1
+        cards_y = h - 9
+        header_y = cards_y - 1
         n = len(cb.hand)
-        # header
-        self.put(header_y, 2, "HAND", C("dim", bold=True))
-        self.put(header_y, 8, f"{len(cb.hand)}", C("text"))
-        energy = cb.energy
-        shown = int(round(self.energy_disp)) if self.energy_disp else energy
-        ex = 16
-        self.put(header_y, ex, "ENERGY", C("dim", bold=True))
-        for i in range(max(3, energy, shown)):
-            on = i < shown
-            self.put(header_y, ex + 7 + i * 2, GL["dot"] if on else GL["ring"],
+        self.put(header_y, 2, "MANA", C("dim", bold=True))
+        for i in range(max(3, cb.player.max_mana)):
+            on = i < cb.player.mana
+            self.put(header_y, 7 + i * 2, GL["dot"] if on else GL["ring"],
                      C("gold") if on else C("faint"))
-        pots = cb.run.potions
-        if pots:
-            self.put(header_y, 31, "Q", C("gold", bold=True))
-            for i in range(3):
-                px = 33 + i * 4
-                if i < len(pots):
-                    pmeta = POTIONS[pots[i]]
-                    self.put(header_y, px, "[" + pmeta["tag"] + "]",
-                             C(pmeta["color"], bold=True))
-                else:
-                    self.put(header_y, px, "[ ]", C("faint"))
-        if self.w >= 94:
-            s = (f"DRAW {len(cb.draw_pile)}   DISCARD {len(cb.discard)}"
-                 f"   EXHAUST {len(cb.exhausted)}")
-        else:
-            s = (f"D{len(cb.draw_pile)}  X{len(cb.discard)}"
-                 f"  E{len(cb.exhausted)}")
-        piles_x = self.w - 2 - len(s)
-        if cb.hand:
-            idx = min(self.sel, len(cb.hand) - 1)
-            cd = cdata(cb.hand[idx])
-            pv = self.preview(cb, cd)
-            if not pv and cb.energy and not any(cb.can_play(i)
-                                                for i in range(len(cb.hand))):
-                pv = "no playable cards"
-            if pv:
-                cap = piles_x - 47
-                if cap > 6:
-                    self.put(header_y, 46, cut(pv, cap),
-                             C("gold" if cb.can_play(idx) else "faint"))
-        self.put(header_y, piles_x, s, C("dim"))
+        self.put(header_y, 7 + max(3, cb.player.max_mana) * 2 + 1,
+                 f"{cb.player.mana}/{cb.player.max_mana}", C("dim"))
+        s = f"TURN {cb.turn}   DECK {len(cb.deck)}   DISCARD {len(cb.discard)}"
+        self.put(header_y, self.w - 2 - len(s), s, C("dim"))
         if n == 0:
             self.center(cards_y + 3, "no cards in hand", C("faint"))
             return
         gap = 1
         if n > 6:
             show = 6
+            self.sel = max(0, min(self.sel, n - 1))
             start = min(max(0, self.sel - show // 2), n - show)
             cw = min(17, max(11, (self.w - (show - 1) * gap - 2) // show))
         else:
             show, start = n, 0
             cw = min(17, max(9, (self.w - (n - 1) * gap - 2) // n))
-        self.win_start = start
         total = show * cw + (show - 1) * gap
         x0 = max(1, (self.w - total) // 2)
         for k in range(show):
             i = start + k
-            c = cb.hand[i]
-            cd = cdata(c)
-            ok = cb.can_play(i)
-            selected = i == self.sel
-            self.draw_card(cards_y, x0 + k * (cw + gap), cw, cd, selected, ok)
+            inst = cb.hand[i]
+            self.draw_bcard(cards_y, x0 + k * (cw + gap), cw, inst,
+                            i == self.sel and self.row == 0,
+                            cb.can_play(i))
         if start > 0:
             self.put(header_y, 30, f"\u2039 {start}", C("gold", dim=True))
         if start + show < n:
-            self.put(header_y, 35, f"{n - start - show} \u203a", C("gold", dim=True))
+            self.put(header_y, 35, f"{n - start - show} \u203a",
+                     C("gold", dim=True))
 
-    def draw_card(self, y, x, w, cd, selected, playable):
-        col = {"attack": "red", "skill": "blue", "power": "purple"}.get(
-            cd["type"], "text")
-        h = 8
+    def draw_bcard(self, y, x, w, inst, selected, playable):
+        d = BOARD_CARDS[inst["id"]]
+        up = inst.get("up", 0)
+        col = "purple" if d["kind"] == "spell" else "green"
         if selected:
-            self.box(y, x, h, w, C("white", bold=True), double=True)
+            self.box(y, x, 8, w, C("white", bold=True), double=True)
         else:
-            self.box(y, x, h, w, C(col, dim=not playable))
-        name = cut(cd["name"], w - 5)
-        if selected:
-            self.put(y + 1, x + 2, name.ljust(w - 5), C("gold", bold=True, rev=True))
-        else:
-            self.put(y + 1, x + 2, name,
-                     C(col, bold=True, dim=not playable))
-        cost = "X" if cd["cost"] < 0 else str(cd["cost"])
-        self.put(y + 1, x + w - 3, cost,
+            self.box(y, x, 8, w, C(col, dim=not playable))
+        name = cut(d["name"], w - 5)
+        self.put(y + 1, x + 2, name,
+                 C("white", bold=True) if selected else
+                 C(col, bold=True, dim=not playable))
+        self.put(y + 1, x + w - 3, str(d["cost"]),
                  C("gold", bold=True) if playable else C("dim"))
-        lines = wrap(ctext(cd), w - 2)
-        for i, ln in enumerate(lines[:5]):
-            self.put(y + 2 + i, x + 1, cut(ln, w - 2),
-                     C("text", dim=not playable))
-        if len(lines) > 5:
-            self.put(y + 6, x + w - 2, GL["ell"], C("dim"))
+        self.put(y + 2, x + 1, GL["h"] * (w - 2), C(col, dim=True))
+        if d["kind"] == "minion":
+            stats = f"{d['atk'] + up} / {d['hp'] + up}"
+            self.put(y + 3, x + 2, stats.ljust(w - 4),
+                     C("gold", bold=True) if playable else C("dim"))
+            kws = " ".join(sorted(d["kw"])).upper()
+            if up:
+                kws = (kws + f" +{up}").strip()
+            self.put(y + 4, x + 2, cut(kws, w - 4), C("cyan", dim=True))
+            lines = wrap(d["text"], w - 4)
+            for i, ln in enumerate(lines[:2]):
+                self.put(y + 5 + i, x + 2, cut(ln, w - 4),
+                         C("text", dim=not playable))
+        else:
+            self.put(y + 3, x + 2, "SPELL", C("purple", bold=True))
+            lines = wrap(d["text"], w - 4)
+            for i, ln in enumerate(lines[:3]):
+                self.put(y + 4 + i, x + 2, cut(ln, w - 4),
+                         C("text", dim=not playable))
+
+    def enemy_target(self):
+        if self.esel == 0:
+            return ("hero",)
+        return ("e", self.esel - 1)
 
     def key_combat(self, ch):
         cb = self.cb
@@ -1459,38 +1299,47 @@ class Game:
         if cb.phase != "player":
             return
         n = len(cb.hand)
-        if ch in LEFT_KEYS or ch == ord("h"):
-            self.sel = (self.sel - 1) % max(1, n)
-            self.card_tip_until = time.monotonic() + 3.0
-        elif ch in RIGHT_KEYS or ch == ord("l"):
-            self.sel = (self.sel + 1) % max(1, n)
-            self.card_tip_until = time.monotonic() + 3.0
-        elif ch in (9,):
-            self.cycle_target()
-        elif ch in UP_KEYS or ch == ord("k"):
-            self.cycle_target(-1)
-        elif ch in DOWN_KEYS or ch == ord("j"):
-            self.cycle_target(1)
+        board = cb.player_alive()
+        if ch in (9,):
+            self.row = (self.row + 1) % 3
+            self.card_tip_until = time.monotonic() + 2.0
+        elif ch in UP_KEYS:
+            self.row = (self.row - 1) % 3
+        elif ch in DOWN_KEYS:
+            self.row = (self.row + 1) % 3
+        elif ch in LEFT_KEYS:
+            if self.row == 0:
+                self.sel = (self.sel - 1) % max(1, n)
+                self.card_tip_until = time.monotonic() + 3.0
+            elif self.row == 1:
+                self.bsel = (self.bsel - 1) % max(1, len(board))
+            else:
+                self.esel = (self.esel - 1) % (len(cb.eboard) + 1)
+        elif ch in RIGHT_KEYS:
+            if self.row == 0:
+                self.sel = (self.sel + 1) % max(1, n)
+                self.card_tip_until = time.monotonic() + 3.0
+            elif self.row == 1:
+                self.bsel = (self.bsel + 1) % max(1, len(board))
+            else:
+                self.esel = (self.esel + 1) % (len(cb.eboard) + 1)
         elif is_enter(ch) or ch == ord(" "):
-            self.play(self.sel)
+            if self.row == 0:
+                self.play(self.sel)
+            elif self.row == 1:
+                self.attack_action()
         elif ord("1") <= ch <= ord("9"):
             idx = getattr(self, "win_start", 0) + (ch - ord("1"))
             if idx < n:
                 self.sel = idx
                 self.play(idx)
+        elif ch in (ord("a"), ord("A")):
+            self.attack_all()
         elif ch in (ord("e"), ord("E")):
-            if cb.phase == "player":
-                now = time.monotonic()
-                if (self.settings.get("confirm_end", True) and cb.energy > 0
-                        and any(cb.can_play(i) for i in range(len(cb.hand)))
-                        and now > self.confirm_end_until):
-                    self.confirm_end_until = now + 2.0
-                    self.toast = ("Energy left \u2014 press E again to end turn.",
-                                  now + 2.0)
-                    return
-                cb.end_turn()
-                self.anim_next = time.monotonic() + 0.30 * self.anim
-                self.sel = 0
+            cb.end_turn()
+            self.anim_next = time.monotonic() + 0.30 * self.anim
+            self.row = 0
+            self.sel = 0
         elif ch == ord("d"):
             self.overlay = "deck"
         elif ch == ord("r"):
@@ -1509,45 +1358,68 @@ class Game:
             self.menu = 0
             self.overlay = "pause"
 
-    def cycle_target(self, step=1):
-        cb = self.cb
-        alive = [i for i, e in enumerate(cb.enemies) if e.alive]
-        if not alive:
-            return
-        if self.tgt not in alive:
-            self.tgt = alive[0]
-            return
-        i = alive.index(self.tgt)
-        self.tgt = alive[(i + step) % len(alive)]
-
     def play(self, i):
         cb = self.cb
         if not cb.can_play(i):
             return
-        cd = cdata(cb.hand[i])
-        if cd["target"] == "enemy" and cb.enemies:
-            self.cycle_target(0)
-        cb.play_card(i, self.tgt)
+        d = BOARD_CARDS[cb.hand[i]["id"]]
+        target = self.enemy_target() if d["kind"] == "spell" else None
+        if d["kind"] == "spell" and any(op[0] == "destroy_target"
+                                       for op in d["effects"]) and self.esel == 0:
+            self.notify("Choose an enemy minion first (TAB).", 2.0)
+            return
+        cb.play_card(i, target)
         self.sel = max(0, min(self.sel, len(cb.hand) - 1))
         self.card_tip_until = time.monotonic() + 2.0
+
+    def attack_all(self):
+        cb = self.cb
+        for _ in range(10):
+            board = cb.player_alive()
+            ready = [i for i, m in enumerate(board) if m.ready]
+            if not ready:
+                break
+            self.bsel = ready[0]
+            if not self.attack_action(advance=False):
+                break
+
+    def attack_action(self, advance=True):
+        cb = self.cb
+        board = cb.player_alive()
+        if not board:
+            return False
+        if not board[min(self.bsel, len(board) - 1)].ready:
+            ready = [i for i, m in enumerate(board) if m.ready]
+            if ready:
+                self.bsel = ready[0]
+        i = min(self.bsel, len(board) - 1)
+        target = self.enemy_target()
+        taunts = [j for j, e in enumerate(cb.eboard) if e.alive and e.taunt]
+        if taunts:
+            if target[0] == "hero" or not cb.eboard[target[1]].taunt:
+                target = ("e", taunts[0])
+        ok = cb.attack(i, target)
+        if ok and advance:
+            ready = [j for j, m in enumerate(cb.player_alive()) if m.ready]
+            self.bsel = ready[0] if ready else 0
+            self.card_tip_until = time.monotonic() + 2.0
+        return ok
 
     def combat_won(self):
         cb = self.cb
         if cb is None:
             return
         kind = cb.kind
-        self.run.hp = cb.player.hp
-        killed = sum(1 for e in cb.enemies if not e.alive)
-        self.run.stats["kills"] += killed
-        self.run.stats["damage"] = (self.run.stats.get("damage", 0)
-                                    + cb.damage_dealt)
+        self.run.hp = max(1, cb.player.hp)
+        self.run.stats["kills"] += cb.kills
+        self.run.stats["damage"] = self.run.stats.get("damage", 0) + cb.damage_dealt
         life = self.best["lifetime"]
         life["combats"] += 1
-        life["kills"] += killed
+        life["kills"] += cb.kills
         life["damage"] += cb.damage_dealt
         self.save_meta()
         self.unlock("first_blood")
-        if cb.best_hit >= 50:
+        if cb.best_hit >= 12:
             self.unlock("big_hit")
         if len(self.run.relics) >= 8:
             self.unlock("collector")
@@ -1583,7 +1455,7 @@ class Game:
             self.see("relics", [rw["relic"]])
         self.tip("reward")
         rw["potion"] = None
-        if kind == "elite" or self.run.rng.random() < 0.38:
+        if kind == "elite" or self.rng.random() < 0.38:
             rw["potion"] = self.run.add_potion()
         self.reward = rw
         self.reward_sel = 0
@@ -1595,6 +1467,7 @@ class Game:
             msg += f"   potion: {POTIONS[rw['potion']]['name']}"
             self.see("potions", [rw["potion"]])
         self.notify(msg, 3.0)
+
 
     def game_over(self):
         self.cb = None
@@ -1785,9 +1658,9 @@ class Game:
         x0 = (self.w - total) // 2
         y = max(10, line + 3)
         for i, cid in enumerate(rw["cards"]):
-            cd = cdata({"id": cid, "up": 0})
-            self.draw_card(y, x0 + i * (cw + gap), cw, cd,
-                           i == self.reward_sel, True)
+            self.draw_bcard(y, x0 + i * (cw + gap), cw,
+                            {"id": cid, "up": 0},
+                            i == self.reward_sel, True)
         self.hint("arrows choose   enter take card   s skip")
 
     def key_reward(self, ch):
@@ -1799,8 +1672,7 @@ class Game:
         elif is_enter(ch) or ch == ord(" "):
             cid = self.reward["cards"][self.reward_sel]
             self.run.add_card(cid)
-            self.toast = (f"{CARDS[cid]['name']} added to your deck.",
-                          time.monotonic() + 2.0)
+            self.notify(f"{BOARD_CARDS[cid]['name']} added to your deck.", 2.0)
             self.reward = None
             self.leave_node()
         elif ch in (ord("s"), ord("S"), 27):
@@ -1872,8 +1744,8 @@ class Game:
 
     def do_upgrade_rest(self, idx):
         self.run.upgrade_card(idx)
-        self.rest_msg = (f"{cdata(self.run.deck[idx])['name']} glows with new "
-                         "power.")
+        self.rest_msg = (f"{BOARD_CARDS[self.run.deck[idx]['id']]['name']} grows "
+                         "stronger (+1/+1).")
         self.state = "rest_result"
 
     def draw_rest_result(self):
@@ -1914,7 +1786,7 @@ class Game:
                 item = s["cards"][idx]
                 price = item["price"]
                 sold = idx in s["sold"]
-                data = cdata({"id": item["cid"], "up": 0})
+                data = BOARD_CARDS[item["cid"]]
             elif kind == "relic":
                 price = s["relic_price"]
                 sold = "relic" in s["sold"]
@@ -1946,16 +1818,21 @@ class Game:
             if kind == "card":
                 cd = data
                 name = cd["name"]
-                typ = cd["type"].upper()
-                tcol = {"attack": "red", "skill": "blue",
-                        "power": "purple"}[cd["type"]]
+                typ = "SPELL" if cd["kind"] == "spell" else "MINION"
+                tcol = "purple" if cd["kind"] == "spell" else "green"
                 self.put(y, 2, mark, C("gold", bold=True))
-                cost = "X" if cd["cost"] < 0 else str(cd["cost"])
-                self.put(y, 4, cost, C("gold", dim=sold))
+
+                self.put(y, 4, str(cd["cost"]), C("gold", dim=sold))
                 self.put(y, 7, cut(name, 20),
                          C(tcol, bold=sel, dim=sold) if not sold else C("faint"))
                 self.put(y, 28, typ, C(tcol, dim=sold))
-                self.put(y, 36, cut(ctext(cd), self.w - 48), C("dim"))
+                if cd["kind"] == "minion":
+                    desc = (f"{cd['atk']}/{cd['hp']}  "
+                            + " ".join(sorted(cd["kw"])).upper() + "  "
+                            + cd["text"])
+                else:
+                    desc = cd["text"]
+                self.put(y, 36, cut(desc, self.w - 48), C("dim"))
                 pr = f"{price}g" if not sold else "sold"
                 self.put(y, self.w - 9, pr.rjust(7),
                          C("gold" if afford and not sold else "red")
@@ -2002,7 +1879,7 @@ class Game:
         kind, idx = rows[self.shop_sel % len(rows)]
         if kind == "card":
             if r.buy_card(idx):
-                self.shop_msg = f"Bought {CARDS[s['cards'][idx]['cid']]['name']}."
+                self.shop_msg = f"Bought {BOARD_CARDS[s['cards'][idx]['cid']]['name']}."
             else:
                 self.shop_msg = ("Not enough gold." if s["cards"][idx]["price"] > r.gold
                                  else "Sold out.")
@@ -2033,7 +1910,7 @@ class Game:
             return
         c = self.run.remove_card(idx)
         if c:
-            self.shop_msg = f"{CARDS[c['id']]['name']} was removed."
+            self.shop_msg = f"{BOARD_CARDS[c['id']]['name']} was removed."
         self.overlay = None
 
     # -------------------------------------------------------------- event --
@@ -2236,17 +2113,18 @@ class Game:
         per_col = rows
         inner = wdt - 4
         colw = inner // 3
-        order = {"attack": 0, "skill": 1, "power": 2}
+        order = {"minion": 0, "spell": 1}
         if sort:
             idxs = sorted(range(len(cards)),
-                          key=lambda k: (order.get(CARDS[cards[k]["id"]]["type"], 3),
-                                         CARDS[cards[k]["id"]]["cost"],
-                                         cdata(cards[k])["name"]))
+                          key=lambda k: (order.get(BOARD_CARDS[cards[k]["id"]]["kind"], 2),
+                                         BOARD_CARDS[cards[k]["id"]]["cost"],
+                                         BOARD_CARDS[cards[k]["id"]]["name"]))
         else:
             idxs = list(range(len(cards)))
         for pos, i in enumerate(idxs):
             c = cards[i]
-            cd = cdata(c)
+            cd = dict(BOARD_CARDS[c["id"]])
+            cd["up"] = c.get("up", 0)
             col = pos // per_col
             rowi = pos % per_col
             if col > 2:
@@ -2261,12 +2139,13 @@ class Game:
                 C("text") if ok else C("faint"))
             if is_sel:
                 self.put(cy, cx - 1, " " * (colw - 1), C("blue", rev=True))
-            name = cut(cd["name"], colw - 8)
+            name = cut(cd["name"], colw - 11)
             cost = "X" if cd["cost"] < 0 else str(cd["cost"])
             self.put(cy, cx, cost.rjust(2), C("gold") if ok else C("faint"))
             self.put(cy, cx + 3, name, attr)
-            self.put(cy, cx + colw - 7,
-                     cd["type"][:6].upper(), C("dim"))
+            tag = (f"{cd['atk'] + cd['up']}/{cd['hp'] + cd['up']}"
+                   if cd["kind"] == "minion" else "SPELL")
+            self.put(cy, cx + colw - 8, tag, C("dim"))
         if len(cards) == 0:
             self.put(y + 2, x + 2, "empty", C("dim"))
         self.put(y + hgt - 2, x + 3, cut(hint, wdt - 6), C("faint"))
@@ -2282,25 +2161,21 @@ class Game:
 
     def draw_glossary(self):
         rows = [
-            ("Vulnerable", "Takes 50% more damage. Ticks down each turn."),
-            ("Weak", "Deals 25% less damage. Ticks down each turn."),
-            ("Poison", "Loses HP at the start of its turn, then 1 stack."),
-            ("Strength", "Adds damage to every attack."),
-            ("Dexterity", "Adds Block to every card that grants Block."),
-            ("Thorns", "Deals damage back when hit by an attack."),
-            ("Metallicize", "Gains Block at the end of its turn."),
-            ("Regeneration", "Heals at the end of its turn."),
-            ("Blur", "Keeps its Block for one more turn."),
-            ("Berserk", "+1 Energy each turn. Gained with 2 Vulnerable."),
-            ("Juggernaut", "Deals damage whenever it gains Block."),
-            ("Exhaust", "The card leaves your deck for this combat."),
+            ("Taunt", "Enemies must attack this minion first."),
+            ("Charge", "Can attack the turn it is summoned."),
+            ("Divine Shield", "Absorbs the first damage it takes."),
+            ("Poisonous", "Destroys any minion it damages."),
+            ("Battlecry", "Triggers when the card is played."),
+            ("Deathrattle", "Triggers when the minion dies."),
+            ("Mana", "Grows by one each turn, up to 8."),
+            ("Board", "Five minions per side; minions attack once."),
         ]
         wdt = min(78, self.w - 6)
         hgt = len(rows) + 5
-        y, x = self.overlay_box(hgt, wdt, "STATUS GLOSSARY")
+        y, x = self.overlay_box(hgt, wdt, "KEYWORDS")
         for i, (name, desc) in enumerate(rows):
             self.put(y + 2 + i, x + 2, name, C("gold", bold=True))
-            self.put(y + 2 + i, x + 16, cut(desc, wdt - 19), C("text"))
+            self.put(y + 2 + i, x + 17, cut(desc, wdt - 20), C("text"))
         self.put(y + hgt - 2, x + 3, "esc to close", C("faint"))
 
     def draw_potions(self):
@@ -2466,7 +2341,9 @@ class Game:
                     self.pot_sel = (self.pot_sel + 1) % len(self.run.potions)
             elif is_enter(ch) or ch == ord(" "):
                 if self.run.potions:
-                    if self.cb and self.cb.use_potion(self.pot_sel, self.tgt):
+                    if self.cb and self.cb.use_potion(
+                            self.run.potions[self.pot_sel], self.enemy_target()):
+                        self.run.potions.pop(self.pot_sel)
                         self.overlay = None
                         life = self.best["lifetime"]
                         life["potions"] += 1
@@ -2479,7 +2356,9 @@ class Game:
                 idx = ch - ord("1")
                 if idx < len(self.run.potions):
                     self.pot_sel = idx
-                    if self.cb and self.cb.use_potion(idx, self.tgt):
+                    if self.cb and self.cb.use_potion(
+                            self.run.potions[idx], self.enemy_target()):
+                        self.run.potions.pop(idx)
                         self.overlay = None
                         life = self.best["lifetime"]
                         life["potions"] += 1
@@ -2511,16 +2390,17 @@ class Game:
         r = self.run
         self.overlay = None
         if kind in ("monster", "elite", "boss"):
-            ids = r.encounter_for(kind)
+            hero = enemy_for(r, kind, r.rng)
             self.disp_hp.clear()
-            self.cb = Combat(r, ids, kind, r.rng)
-            self.see("enemies", ids)
-            if kind == "boss" and self.cb.enemies:
-                self.notify(f"{self.cb.enemies[0].name} blocks the way.", 3.0)
+            self.cb = BoardCombat(r, hero, kind, r.rng)
+            if kind == "boss":
+                self.notify(f"{hero['name']} blocks the way.", 3.0)
             else:
                 self.tip("combat")
             self.sel = 0
-            self.tgt = 0
+            self.bsel = 0
+            self.esel = 0
+            self.row = 0
             self.win_at = None
             self.lose_at = None
             self.card_tip_until = time.monotonic() + 3.0

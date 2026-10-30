@@ -272,3 +272,20 @@ newer-version refusal, unknown-content cleanup, run reconstruction).
   poisoned targets, Mace/Judgement heal, Holy Strike/Verdict add Block.
 - **Balance after the pass** (60 sims per class): Warden 52 %, Ashblade 45 %,
   Emberwright 45 %, Pilgrim 47 %, Silver Hand 48 %.
+
+
+## Hearthstone-style board (round 9)
+
+- **Combat is now a board game**: heroes, mana 3-8, five minion slots per side,
+  summoning sickness, one attack per minion, Taunt, Charge, Divine Shield,
+  Poisonous, Battlecry and Deathrattle.
+- **100 class cards** (5 x 20: 16 minions + 4 spells) plus 10 tokens, with a
+  starter deck and enemy deck for every class/hero.
+- **Enemy heroes** (19) play minions and attack with their board instead of
+  showing intents.
+- **Board UI**: minion tiles with ATK/HP and keywords, hero lines with HP/mana,
+  row cursor (hand / board / enemy), attack-all, and full card text.
+- **Rebuilt economy**: rewards, shops, upgrades (+1/+1), deck view and codex use
+  the new cards; relics and potions were remapped to board effects.
+- **Balance**: boss HP tuned after headless runs (Ash Warden 64, Hollow Choir 74,
+  Cinder King 86, First Flame 110); act fights cost 10-30 HP.

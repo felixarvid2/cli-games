@@ -1,36 +1,35 @@
 # CINDERSPIRE
 
-**A deckbuilding roguelike for the terminal.**
+**A Hearthstone-like deckbuilder roguelike for the terminal.**
 
-The spire is burning from the inside. Three acts, three keepers, and a lot of
-ash stand between you and the Cinder King. Pick one of five classes, build a
-deck, read the enemy intents, and climb - and once you have won, the throne
-cracks open and a fourth, harder act waits below.
+A hero, a hand of cards, and a five-slot board. Play minions, buff them, trade
+them, and break the enemy hero before it breaks you. Climb three acts and the
+secret Ember Heart across five classes.
 
 ```
-  CINDERSPIRE  · ELITE                                     ACT I  ·  FLOOR 1/7
+  CINDERSPIRE  · COMBAT                                    ACT I  ·  FLOOR 1/7
   HP ████████████████ 80/80     GOLD 320       DECK 10                      BB
 ────────────────────────────────────────────────────────────────────────────────
-  YOU  T1                     ▶ ATK 9                         ATK 9
-   o                           ,---.                          /\_/\
-  /|\                         ( >.< )                        ( o.o )
-  / \                         /|   |\                         > ^ <
-  BLK 12 IN 18               / |   | \                       /|   |\
-  80/80                     Gremlin Nob                       Louse
-  STR3 VULN1           ████│███│███│█ 55/55           ████│███│███│█ 17/17
-  THRN3
-  A battle begins.
-  -- Turn 1 --
+    LOUSE SWARM    HP 26/26    MANA 3/3    HAND 5
+   ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌────────────┐
+   │ 2/2        │ │ 0/4  TAUNT │ │    empty   │ │    empty   │ │    empty   │
+   │ Bandit     │ │ Sentinel   │ │            │ │            │ │            │
+   └────────────┘ └────────────┘ └────────────┘ └────────────┘ └────────────┘
 ────────────────────────────────────────────────────────────────────────────────
-  HAND  5       ENERGY ● ● ○                  +5 BLOCK              D5  X0  E0
+   ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌────────────┐
+   │ 2/4  TAUNT │ │ 5/3        │ │    empty   │ │    empty   │ │    empty   │
+   │ Shieldbear…│ │ Berserker  │ │            │ │            │ │            │
+   └────────────┘ └────────────┘ └────────────┘ └────────────┘ └────────────┘
+   Ashguard (1): 1/3 TAUNT
+  MANA ● ● ●  3/3                                  TURN 1   DECK 5   DISCARD 0
    ╔════════════╗ ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌────────────┐
-   ║ Defend   1 ║ │ Defend   1 │ │ Strike   1 │ │ Strike   1 │ │ Strike   1 │
-   ║════════════║ │────────────│ │────────────│ │────────────│ │────────────│
-   ║ Gain 5     ║ │ Gain 5     │ │ Deal 6     │ │ Deal 6     │ │ Deal 6     │
-   ║ Block.     ║ │ Block.     │ │ damage.    │ │ damage.    │ │ damage.    │
-   ║            ║ │            │ │            │ │            │ │            │
-   ║            ║ │            │ │            │ │            │ │            │
+   ║ Ashguard 1 ║ │ Cleaver  1 │ │ Cleave   2 │ │ Cleaver  1 │ │ Berserker3 │
+   ║────────────║ │────────────│ │────────────│ │────────────│ │────────────│
+   ║ 1 / 3      ║ │ 3 / 1      │ │ SPELL      │ │ 3 / 1      │ │ 5 / 3      │
+   ║ TAUNT      ║ │            │ │ Deal 2     │ │            │ │            │
+   ║            ║ │            │ │ damage to  │ │            │ │            │
    ╚════════════╝ └────────────┘ └────────────┘ └────────────┘ └────────────┘
+  1-9 play  A attack all  TAB rows  E end  Q potion  V text  ESC
 ```
 
 ## Run it
@@ -43,9 +42,7 @@ pip install . && cinderspire    # installed command
 ```
 
 Prebuilt single-file builds are attached to the repository's Releases.
-
-Options: `--seed N` starts a run with a fixed seed, `--version` prints the
-version and `--reset` clears saves.
+Options: `--seed N`, `--version`, `--reset`.
 
 Requires Python 3.9+ and a terminal with `curses`. No third-party packages.
 Minimum size is 78x24; 100x30 or larger looks best.
@@ -55,108 +52,67 @@ Minimum size is 78x24; 100x30 or larger looks best.
 | Key | Action |
 | --- | --- |
 | `1`-`9` | Play the card in that slot |
-| `←` `→` | Select a card |
-| `TAB` / `↑` `↓` | Change target |
-| `ENTER` / `SPACE` | Play selected card |
+| `←` `→` | Select a card, minion or target |
+| `↑` `↓` / `TAB` | Switch row: hand → your board → enemy board |
+| `ENTER` | Play the selected card, or attack with the selected minion |
+| `A` | Attack with every ready minion |
 | `E` | End turn |
 | `Q` | Potions |
-| `D` | Deck |
-| `R` | Relics |
-| `ESC` | Pause menu (also settings, save & quit) |
-| `L` / `?` | Combat log / status glossary |
-| `V` | Pin or release the selected card's full text |
-| `H` `J` `K` `L` | Move with vim keys (selection / target) |
-| `S` (title) | Start a run from a seed |
-| `R` (end screen) | Start a new run instantly |
-| `↑` `↓` `ENTER` | Menus, map, shops |
+| `V` | Full card text / combat log |
+| `D` / `R` / `L` / `?` | Deck / relics / log / keywords |
+| `ESC` | Pause menu |
 
-Number keys are contextual: in menus and the map, `↑`/`↓` + `ENTER` do the
-work.
+## Board combat
+
+- Your **hero** has 80 HP and **mana** that grows from 3 to 8.
+- You and the enemy each have **five board slots**.
+- Minions have **Attack / Health** and attack **once per turn**. A minion
+  played this turn cannot attack unless it has **Charge**.
+- **Taunt** minions must be attacked first; **Divine Shield** absorbs the first
+  hit; **Poisonous** destroys anything it damages.
+- **Battlecry** triggers when a minion is played, **Deathrattle** when it dies.
+- You draw 5 cards at the start and 2 per turn. Enemy heroes play from their own
+  deck and attack with their board.
+- Reduce the enemy hero to 0. If your hero falls, the run ends.
 
 ## Five classes
 
-| Class | Identity | Starter |
+Every class has **20 cards** (16 minions + 4 spells) and its own starter deck.
+No card is shared between classes.
+
+| Class | Identity | Starter deck |
 | --- | --- | --- |
-| **The Warden** | Strength, heavy blows, self-damage | Bash |
-| **The Ashblade** | Poison, Shivs, draw and Dexterity | Poison Stab |
-| **The Emberwright** | Energy, Burns, powers and big Block | Beam Cell |
-| **The Pilgrim** | Healing, Block, thorns and zeal | Smite |
-| **The Silver Hand** | Divine Shield, Recruits, blessings and auras | Reinforce |
-
-Each class has **60 unique cards** and its own basics - there is no shared card
-pool at all. Rewards, shops and the codex change with your choice. Every class
-can be won with, and winning with all five unlocks the **Polymath** achievement.
-
-The starting decks are deliberately different from turn one:
-
-| Class | Starter deck (10 cards) |
-| --- | --- |
-| Warden | 5× Strike (7 dmg), 3× Defend, Brace (Block + Strength), Bash |
-| Ashblade | 5× Quick Cut (bonus vs Poisoned), 2× Dodge (Block + draw), Poison Dart, Shiv Throw, Poison Stab |
-| Emberwright | 4× Spark (bonus with a Burn), 3× Guard, Arc, Coil, Beam Cell |
-| Pilgrim | 4× Censure (damage + heal), 3× Ward, Bless, Shield Bash, Smite |
-| Silver Hand | 4× Hammer (damage + Block), 3× Shield of Light, Faith, Aegis Blessing, Reinforce |
+| **The Warden** | Taunt, big bodies, Charge | Ashguard, Cleaver ×2, Shieldbearer, Brute, Veteran, Ironclad, Berserker, Cleave, Rally |
+| **The Ashblade** | Poison, Charge, card draw | Dagger, Cutthroat ×2, Poisoner, Shiv Dancer, Blademaster, Rogue, Shadowblade, Backstab, Fan of Knives |
+| **The Emberwright** | Burn spells, machines, mana | Sparkbot, Furnace ×2, Boiler, Turret, Arcanist, Mage, Steambot, Fireball, Overclock |
+| **The Pilgrim** | Healing, Divine Shield, Taunt | Acolyte, Cleric, Shieldbearer, Monk, Templar, Guardian, Healer, Zealot, Prayer, Blessing |
+| **The Silver Hand** | Divine Shield, Recruits, buffs | Squire, Minibots, Recruiter, Lightwarden, Knight, Argent, Sergeant, Blessing, Reinforce, Consecration |
 
 ## What's in the spire
 
-- **300 cards** - 60 unique cards per class, no shared pool - every one
-  upgradeable.
-- **24 enemies** with telegraphed intents, plus elites and **four bosses** -
-  the Ash Warden, the Hollow Choir, the Cinder King and the secret First Flame
-  - each with its own patterns and a phase change below half health.
-- **30 relics**: 20 you find on the way, plus 10 **ember boons** offered only
-  after a boss (extra energy, flat damage, a bigger hand, ...).
-- **13 potions** in a three-slot belt - the panic button you save for the boss.
-- **13 events**, and a fresh branching map for each act with rests, shops,
-  treasure and elite fights.
-- **Ascension**: win once and a harder spire unlocks. Each level gives enemies
-  more HP and Strength while paying less gold.
-- **Daily run** with a date-derived seed, plus seed entry for sharing.
-- **Codex**: 384 entries (300 cards by class, relics, potions, bestiary,
-  achievements), revealed as you discover them.
-- **17 achievements** with lifetime stats, and one-time onboarding tips.
-- **Burn** status cards, Molten Colossus elites and Flame Servants in the
-  Ember Heart.
+- **100 class cards + 10 tokens** (Shivs, Recruits, Soldiers, ...).
+- **19 enemy heroes** with their own decks, including four keepers:
+  the Ash Warden, the Hollow Choir, the Cinder King and the First Flame.
+- **28 relics**, **13 potions**, **13 events**, **17 achievements**.
+- Three acts of seven floors, plus the secret **Ember Heart** (four floors)
+  unlocked after your first win.
+- **Ascension**, **daily runs**, seed entry and a codex of 177 entries.
+- Atomic saves with backups, schema migration and a crash log.
 
 ## How a run works
 
-1. Pick a class, then a path up the branching map - seven floors per act.
-2. Fight, and take one of three cards (or skip - small decks are sharp).
-3. Spend gold at shops, upgrade at campfires, cut cards you never play.
-4. Beat the keeper at the top of each act, claim an ember boon, and climb on.
-5. Kill the Cinder King at the top of the third act.
-6. If you have won at least once, the throne cracks open: descend into the
-   Ember Heart for a four-floor gauntlet and the true final boss, or leave with
-   the crown and take the victory.
+1. Pick a class and a path up the branching map.
+2. Win board fights, take one of three cards (or skip).
+3. Spend gold at shops, upgrade cards at campfires (+1/+1), cut dead weight.
+4. Beat the keeper at the end of each act, claim an ember boon, climb on.
+5. The Cinder King can be left with the crown - or you can descend into the
+   Ember Heart for the true final boss.
 
-Block is removed at the start of your turn, so save it for the turn an enemy
-actually swings. Vulnerable increases damage taken by 50%; Weak cuts damage
-dealt by 25%. Enemy intents always show the damage they will deal *after* those
-modifiers.
-
-Your best score, win count, ascension and settings are saved to
+Your best score, wins, ascension and settings are saved to
 `~/.local/share/cinderspire/save.json`. Quitting to the title saves the run at
-the map in `run.json`, so CONTINUE picks it up next time. Writes are atomic and
-versioned, the previous file is kept as `.bak`, and a corrupt save falls back to
-the backup instead of crashing. Old saves from `~/.cinderspire.json` are
-migrated automatically.
-
-## Project layout
-
-```
-play_cinderspire.py     entry point
-cinderspire/
-  data.py               cards, enemies, relics, potions, events
-  core.py               rules: combat engine, map generation, run state, saves
-  ui.py                 curses rendering, input, screens, animation
-  __main__.py           python -m cinderspire
-pyproject.toml          installable package + `cinderspire` command
-tools/build_zipapp.sh   builds dist/cinderspire.pyz
-CHANGELOG.md            release notes
-```
-
-The rules layer is independent of curses: `Combat` and `Run` can be driven
-headlessly, which is how the balance simulation works.
+the map in `run.json`; CONTINUE picks it up next time. Writes are atomic and
+versioned, the previous file is kept as `.bak`, and corrupt saves fall back to
+the backup.
 
 ## Agent skills
 
@@ -174,10 +130,21 @@ when working on this repo:
 
 They are agent tooling only - the game itself has no dependencies.
 
-## Development
+## Project layout
 
-```bash
-python3 -m py_compile cinderspire/*.py
-python3 -m cinderspire          # play
-CINDERSPIRE_ANIM=0.2 python3 play_cinderspire.py   # faster enemy turns
 ```
+play_cinderspire.py     entry point
+cinderspire/
+  board_data.py         minions, spells, enemy decks
+  board.py              board combat engine (heroes, mana, minions, keywords)
+  data.py               relics, potions, events, achievements, classes
+  core.py               run state, map, rewards, shops, saves
+  ui.py                 curses rendering, input, screens, animation
+  __main__.py           python -m cinderspire
+pyproject.toml          installable package + `cinderspire` command
+tools/build_zipapp.sh   builds dist/cinderspire.pyz
+CHANGELOG.md            release notes
+```
+
+The rules layer is independent of curses: `BoardCombat` and `Run` can be driven
+headlessly, which is how the balance and keyword tests work.

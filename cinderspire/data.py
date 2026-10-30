@@ -344,25 +344,25 @@ RELICS = {
     "burning_blood": dict(name="Burning Blood", color="red",
                           desc="Heal 6 HP after each combat.", tag="BB"),
     "vajra": dict(name="Vajra", color="orange",
-                  desc="Start each combat with 1 Strength.", tag="VJ"),
+                  desc="Your minions have +1 Attack.", tag="VJ"),
     "anchor": dict(name="Anchor", color="blue",
-                   desc="Start each combat with 10 Block.", tag="AN"),
+                   desc="Start combat with a 0/3 Taunt guard.", tag="AN"),
     "lantern": dict(name="Lantern", color="gold",
                     desc="Gain 1 extra Energy on turn 1.", tag="LN"),
     "bag_of_prep": dict(name="Bag of Preparation", color="green",
                         desc="Draw 2 extra cards on turn 1.", tag="BP"),
     "bronze_scales": dict(name="Bronze Scales", color="teal",
-                          desc="Start each combat with 3 Thorns.", tag="BS"),
+                          desc="Enemy minions take 1 when they hit you.", tag="BS"),
     "blood_vial": dict(name="Blood Vial", color="red",
                        desc="Heal 2 HP at the start of each combat.", tag="BV"),
     "smooth_stone": dict(name="Oddly Smooth Stone", color="cyan",
-                         desc="Start each combat with 1 Dexterity.", tag="SS"),
+                         desc="Your minions have +1 Health.", tag="SS"),
     "orichalcum": dict(name="Orichalcum", color="gold",
-                       desc="End your turn with 6 Block if you have none.", tag="OR"),
+                       desc="If you end your turn with no minions, summon a 1/1.", tag="OR"),
     "gremlin_horn": dict(name="Gremlin Horn", color="green",
-                         desc="Gain 1 Energy and draw 1 card on kill.", tag="GH"),
+                         desc="Gain 1 Mana when an enemy minion dies.", tag="GH"),
     "pen_nib": dict(name="Pen Nib", color="purple",
-                    desc="Every 10th attack deals double damage.", tag="PN"),
+                    desc="Every 5th attack deals double damage.", tag="PN"),
     "teapot": dict(name="Ancient Teapot", color="teal",
                    desc="Heal 4 additional HP at rest sites.", tag="TP"),
 }
@@ -444,19 +444,19 @@ EVENTS = [
 
 POTIONS = {
     "fire": dict(tag="FI", name="Fire Potion", color="red", target=True,
-                 desc="Deal 20 damage to an enemy."),
+                 desc="Deal 6 damage."),
     "block": dict(tag="BL", name="Block Potion", color="blue",
-                  desc="Gain 12 Block."),
+                  desc="Restore 8 health."),
     "strength": dict(tag="ST", name="Strength Potion", color="orange",
-                     desc="Gain 2 Strength."),
+                     desc="Give your minions +1/+1."),
     "swift": dict(tag="SW", name="Swift Potion", color="green",
-                  desc="Draw 3 cards."),
+                  desc="Draw 2 cards."),
     "energy": dict(tag="EN", name="Energy Potion", color="gold",
-                   desc="Gain 2 Energy."),
+                   desc="Gain 2 Mana."),
     "fear": dict(tag="FE", name="Fear Potion", color="purple", target=True,
                  desc="Apply 3 Vulnerable."),
     "regen": dict(tag="RE", name="Regen Potion", color="green",
-                  desc="Heal 12 HP."),
+                  desc="Restore 10 health."),
     "poison": dict(tag="PO", name="Poison Potion", color="teal", target=True,
                    desc="Apply 6 Poison."),
 }
@@ -539,23 +539,19 @@ enemy("collector", "The Collector", (104, 112), [
 RELICS.update({
     "meat": dict(name="Meat on the Bone", color="red",
                  desc="Heal 12 HP after combat if below half HP.", tag="MB"),
-    "kunai": dict(name="Kunai", color="green",
-                  desc="Every 3rd attack grants 1 Dexterity.", tag="KN"),
-    "shuriken": dict(name="Shuriken", color="teal",
-                     desc="Every 3rd attack grants 1 Strength.", tag="SH"),
 })
 
 RELICS.update({
     "ember_heart": dict(name="Ember Heart", color="red", boss=True, tag="EH",
                         desc="Heal 8 HP after every combat."),
     "molten_core": dict(name="Molten Core", color="orange", boss=True, tag="MC",
-                        desc="Start each combat with 2 Strength."),
+                        desc="Your minions have +2 Attack."),
     "bastion": dict(name="Bastion Plate", color="blue", boss=True, tag="BA",
-                    desc="Start each combat with 8 Block and 1 Dexterity."),
+                    desc="Start combat with a 0/3 Taunt guard."),
     "hourglass": dict(name="Black Hourglass", color="purple", boss=True, tag="HG",
                       desc="Draw 1 extra card each turn."),
     "twin_fangs": dict(name="Twin Fangs", color="teal", boss=True, tag="TF",
-                       desc="Your attacks deal 2 extra damage."),
+                       desc="Your minions have +1 Attack."),
     "bloodstone": dict(name="Bloodstone", color="red", boss=True, tag="BD",
                        desc="Gain 10 max HP. Heal 4 HP after combat."),
 })
@@ -659,9 +655,9 @@ ELITES[1].append(["spore_mother"])
 
 POTIONS.update({
     "steel": dict(tag="ES", name="Essence of Steel", color="blue",
-                  desc="Gain 4 Metallicize."),
+                  desc="Give a minion Divine Shield."),
     "memories": dict(tag="LM", name="Liquid Memories", color="purple",
-                     desc="Put a random card from your discard into your hand."),
+                     desc="Draw 2 cards."),
     "juice": dict(tag="FJ", name="Fruit Juice", color="red",
                   desc="Gain 5 max HP."),
 })
@@ -670,13 +666,13 @@ RELICS.update({
     "strawberry": dict(name="Strawberry", color="red", tag="SB",
                        desc="Gain 7 max HP when picked up."),
     "letter_opener": dict(name="Letter Opener", color="teal", tag="LO",
-                          desc="Every 3 Skills played, deal 5 damage to ALL."),
+                          desc="Every 3 spells, deal 2 damage to the enemy hero."),
     "sundial": dict(name="Sundial", color="gold", tag="SD",
                     desc="Every 3rd turn, gain 1 Energy."),
     "throne": dict(name="Throne of Ash", color="red", boss=True, tag="TA",
                    desc="+1 Energy each turn. Lose 6 max HP."),
     "choir_bell": dict(name="Choir Bell", color="purple", boss=True, tag="CB",
-                       desc="Start combat with 4 Block; draw 1 extra on turn 1."),
+                       desc="Draw 1 extra card at the start of combat."),
 })
 
 EVENTS.extend([
@@ -716,7 +712,7 @@ ACHIEVEMENTS = {
     "victory": dict(name="Cinderfall", desc="Defeat the Cinder King."),
     "asc1": dict(name="Harder Ashes", desc="Win on Ascension 1 or higher."),
     "slayer": dict(name="Ash Sweeper", desc="Defeat 50 enemies (lifetime)."),
-    "big_hit": dict(name="Overkill", desc="Deal 50 damage with a single hit."),
+    "big_hit": dict(name="Overkill", desc="Deal 12 damage with a single hit."),
     "collector": dict(name="Relic Hunter", desc="Hold 8 relics at once."),
     "rich": dict(name="Deep Pockets", desc="Carry 500 gold."),
     "potion_user": dict(name="Alchemist", desc="Drink 10 potions (lifetime)."),
@@ -821,7 +817,7 @@ RELICS.update({
                         boss=True, tag="CF",
                         desc="+1 Energy each turn. Lose 8 max HP."),
     "ashen_wings": dict(name="Ashen Wings", color="cyan", boss=True,
-                        tag="AW", desc="Start each combat with 2 Dexterity."),
+                        tag="AW", desc="Start combat with a 1/2 Whelp."),
     "whetstone": dict(name="Whetstone", color="text", tag="WH",
                       desc="Attacks deal 1 extra damage."),
     "heartstone": dict(name="Heartstone", color="red", tag="HS",
@@ -830,9 +826,9 @@ RELICS.update({
 
 POTIONS.update({
     "firestorm": dict(tag="FS", name="Firestorm Potion", color="orange",
-                      desc="Deal 15 damage to ALL enemies."),
+                      desc="Deal 3 damage to all enemy minions."),
     "ember_blood": dict(tag="EB", name="Ember Blood", color="red",
-                        desc="Heal 25 HP."),
+                        desc="Restore 25 health."),
 })
 
 EVENTS.extend([

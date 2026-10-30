@@ -1,3 +1,3 @@
 """CINDERSPIRE - a deckbuilder roguelike for the terminal."""
 
-__version__ = "1.5.1"
+__version__ = "2.0.0"
