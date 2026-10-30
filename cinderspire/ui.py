@@ -242,6 +242,8 @@ class Game:
         self.gold_seen = 0
         self.gold_flash_until = 0.0
         self.confirm_end_until = 0.0
+        self.card_tip_until = 0.0
+        self.tip_pinned = True
         self.event = None
         self.event_stage = 0
         self.event_msg = ""
@@ -1106,6 +1108,9 @@ class Game:
             self.overlay = "deck"
         elif ch == ord("r"):
             self.overlay = "relics"
+        elif ch in (ord("v"), ord("V")):
+            self.tip_pinned = not self.tip_pinned
+            self.card_tip_until = time.monotonic() + 3.0
         elif ch == ord("L"):
             self.overlay = "log"
         elif ch == ord("?"):
@@ -1129,12 +1134,23 @@ class Game:
             self.rule(rule_y, C("red", dim=True))
         else:
             self.rule(rule_y)
-        for i, (msg, col) in enumerate(cb.logs[-2:]):
-            att = C("gold", bold=True) if msg.startswith("-- Turn") else C(col)
-            self.put(log1 + i, 2, cut(msg, self.w - 4), att)
+        now = time.monotonic()
+        if cb.hand and (self.tip_pinned or now < self.card_tip_until):
+            idx = min(self.sel, len(cb.hand) - 1)
+            cd = cdata(cb.hand[idx])
+            body = ctext(cd).replace("\n", " ")
+            head = f"{cd['name']} ({'X' if cd['cost'] < 0 else cd['cost']}): "
+            lines = wrap(head + body, self.w - 6)
+            for i, line in enumerate(lines[:2]):
+                self.put(log1 + i, 3, line,
+                         C("gold", bold=True) if i == 0 else C("text"))
+        else:
+            for i, (msg, col) in enumerate(cb.logs[-2:]):
+                att = C("gold", bold=True) if msg.startswith("-- Turn") else C(col)
+                self.put(log1 + i, 2, cut(msg, self.w - 4), att)
         self.draw_hand(cb)
         self.hint("1-9 play  \u2190\u2192  TAB target  E end  Q potion  "
-                  "L log  ? help  ESC")
+                  "V text  L log  ? help  ESC")
 
     def draw_arena(self, cb):
         top = 3
@@ -1429,14 +1445,11 @@ class Game:
         cost = "X" if cd["cost"] < 0 else str(cd["cost"])
         self.put(y + 1, x + w - 3, cost,
                  C("gold", bold=True) if playable else C("dim"))
-        self.put(y + 2, x + 1,
-                 (GL["dh"] if selected else GL["h"]) * (w - 2),
-                 C("white" if selected else col, dim=True))
-        lines = wrap(ctext(cd), w - 4)
-        for i, ln in enumerate(lines[:4]):
-            self.put(y + 3 + i, x + 2, cut(ln, w - 4),
+        lines = wrap(ctext(cd), w - 2)
+        for i, ln in enumerate(lines[:5]):
+            self.put(y + 2 + i, x + 1, cut(ln, w - 2),
                      C("text", dim=not playable))
-        if len(lines) > 4:
+        if len(lines) > 5:
             self.put(y + 6, x + w - 2, GL["ell"], C("dim"))
 
     def key_combat(self, ch):
@@ -1448,8 +1461,10 @@ class Game:
         n = len(cb.hand)
         if ch in LEFT_KEYS or ch == ord("h"):
             self.sel = (self.sel - 1) % max(1, n)
+            self.card_tip_until = time.monotonic() + 3.0
         elif ch in RIGHT_KEYS or ch == ord("l"):
             self.sel = (self.sel + 1) % max(1, n)
+            self.card_tip_until = time.monotonic() + 3.0
         elif ch in (9,):
             self.cycle_target()
         elif ch in UP_KEYS or ch == ord("k"):
@@ -1480,6 +1495,9 @@ class Game:
             self.overlay = "deck"
         elif ch == ord("r"):
             self.overlay = "relics"
+        elif ch in (ord("v"), ord("V")):
+            self.tip_pinned = not self.tip_pinned
+            self.card_tip_until = time.monotonic() + 3.0
         elif ch == ord("L"):
             self.overlay = "log"
         elif ch == ord("?"):
@@ -1511,6 +1529,7 @@ class Game:
             self.cycle_target(0)
         cb.play_card(i, self.tgt)
         self.sel = max(0, min(self.sel, len(cb.hand) - 1))
+        self.card_tip_until = time.monotonic() + 2.0
 
     def combat_won(self):
         cb = self.cb
@@ -2504,6 +2523,8 @@ class Game:
             self.tgt = 0
             self.win_at = None
             self.lose_at = None
+            self.card_tip_until = time.monotonic() + 3.0
+            self.tip_pinned = True
             self.anim_next = time.monotonic() + 0.3
             self.state = "combat"
         elif kind == "rest":

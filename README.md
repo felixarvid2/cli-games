@@ -64,6 +64,7 @@ Minimum size is 78x24; 100x30 or larger looks best.
 | `R` | Relics |
 | `ESC` | Pause menu (also settings, save & quit) |
 | `L` / `?` | Combat log / status glossary |
+| `V` | Pin or release the selected card's full text |
 | `H` `J` `K` `L` | Move with vim keys (selection / target) |
 | `S` (title) | Start a run from a seed |
 | `R` (end screen) | Start a new run instantly |

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.5.1
+
+- Card text is no longer cut off: cards show five lines and the selected
+  card's full text is shown above the hand (V toggles between card text and
+  the combat log). During the enemy turn the log is shown automatically.
+
 ## 1.5.0
 
 - Unique basics and starter decks for all five classes; no shared "6/5" clones.
