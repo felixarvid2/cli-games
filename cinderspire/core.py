@@ -1432,21 +1432,23 @@ class Run:
                 self.gold += 50
                 msgs.append("You find only gold (50).")
         if ch.get("random_card"):
-            r = ch["random_card"]
-            cid = self.rng.choice(POOL.get(r, POOL["rare"]))
-            self.add_card(cid)
-            msgs.append(f"You gained {CARDS[cid]['name']}.")
+            pool = BPOOL.get(self.cls) or []
+            cid = self.rng.choice(pool) if pool else None
+            if cid:
+                self.add_card(cid)
+                msgs.append(f"You gained {BOARD_CARDS[cid]['name']}.")
         if ch.get("pick") == "upgrade" and picked is not None:
+            cid = self.deck[picked]["id"]
             if self.upgrade_card(picked):
-                msgs.append(f"{CARDS[self.deck[picked]['id']]['name']} was upgraded.")
+                msgs.append(f"{BOARD_CARDS[cid]['name']} was upgraded (+1/+1).")
         if ch.get("pick") == "duplicate" and picked is not None:
             c = self.deck[picked]
             self.deck.append(dict(c))
-            msgs.append(f"{CARDS[c['id']]['name']} was duplicated.")
+            msgs.append(f"{BOARD_CARDS[c['id']]['name']} was duplicated.")
         if ch.get("pick") == "remove" and picked is not None:
             c = self.remove_card(picked)
             if c:
-                msgs.append(f"{CARDS[c['id']]['name']} was removed from your deck.")
+                msgs.append(f"{BOARD_CARDS[c['id']]['name']} was removed from your deck.")
         if not msgs:
             msgs.append("Nothing happens.")
         return " ".join(msgs)

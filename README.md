@@ -54,6 +54,7 @@ Minimum size is 78x24; 100x30 or larger looks best.
 | `1`-`9` | Play the card in that slot |
 | `←` `→` | Select a card, minion or target |
 | `↑` `↓` / `TAB` | Switch row: hand → your board → enemy board |
+| `0`-`5` | Pick the enemy hero (0) or a minion as the attack target |
 | `ENTER` | Play the selected card, or attack with the selected minion |
 | `A` | Attack with every ready minion |
 | `E` | End turn |

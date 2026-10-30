@@ -1134,7 +1134,7 @@ class Game:
         log1 = 13 + off
         rule2 = 14 + off
         self.rule(2)
-        hero_sel = self.row == 2 and self.esel == 0
+        hero_sel = self.esel == 0
         line = (f"{cb.enemy.name.upper()}    HP {cb.enemy.hp}/{cb.enemy.max_hp}"
                 f"    MANA {cb.enemy.mana}/{cb.enemy.max_mana}"
                 f"    HAND {len(cb.ehand)}")
@@ -1161,12 +1161,19 @@ class Game:
             self.put(log1, 2, cut(cb.logs[-1][0], self.w - 4),
                      C(cb.logs[-1][1]) if cb.logs else C("text"))
         self.draw_hand(cb)
-        if self.row == 0:
-            hint = "1-9 play  A attack all  TAB rows  E end"
-        elif self.row == 1:
-            hint = "ENTER attack  A all  \u2190\u2192 choose  E end"
+        if self.esel == 0:
+            tgt = "HERO"
+        elif 0 <= self.esel - 1 < len(cb.eboard):
+            m = cb.eboard[self.esel - 1]
+            tgt = f"{m.name} {m.atk}/{m.hp}"
         else:
-            hint = "TAB rows  \u2190\u2192 target  E end"
+            tgt = "HERO"
+        if self.row == 0:
+            hint = f"[{tgt}] 1-9 play  TAB target  A all  E end"
+        elif self.row == 1:
+            hint = f"[{tgt}] ENTER attack  0-5 target  TAB rows"
+        else:
+            hint = f"[{tgt}] 0-5 pick  ENTER attack  TAB rows"
         self.hint(hint + "  Q potion  V text  ESC")
 
     def draw_side(self, cb, side, y):
@@ -1326,13 +1333,20 @@ class Game:
         elif is_enter(ch) or ch == ord(" "):
             if self.row == 0:
                 self.play(self.sel)
-            elif self.row == 1:
+            else:
                 self.attack_action()
-        elif ord("1") <= ch <= ord("9"):
-            idx = getattr(self, "win_start", 0) + (ch - ord("1"))
-            if idx < n:
-                self.sel = idx
-                self.play(idx)
+        elif ord("0") <= ch <= ord("9"):
+            if self.row == 0 and ch != ord("0"):
+                idx = getattr(self, "win_start", 0) + (ch - ord("1"))
+                if idx < n:
+                    self.sel = idx
+                    self.play(idx)
+            elif self.row in (1, 2):
+                if ch == ord("0"):
+                    self.esel = 0
+                else:
+                    self.esel = min(ch - ord("0"), len(cb.eboard))
+                self.card_tip_until = time.monotonic() + 2.0
         elif ch in (ord("a"), ord("A")):
             self.attack_all()
         elif ch in (ord("e"), ord("E")):
@@ -1395,9 +1409,12 @@ class Game:
         i = min(self.bsel, len(board) - 1)
         target = self.enemy_target()
         taunts = [j for j, e in enumerate(cb.eboard) if e.alive and e.taunt]
-        if taunts:
-            if target[0] == "hero" or not cb.eboard[target[1]].taunt:
-                target = ("e", taunts[0])
+        if taunts and (target[0] == "hero"
+                       or not cb.eboard[target[1]].taunt):
+            self.notify("A Taunt blocks the way - pick a Taunt minion "
+                        "(0-5 or \u2190\u2192).", 2.5)
+            self.row = 2
+            return False
         ok = cb.attack(i, target)
         if ok and advance:
             ready = [j for j, m in enumerate(cb.player_alive()) if m.ready]

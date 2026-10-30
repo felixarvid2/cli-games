@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.0.1
+
+- Fixed a crash when an event upgraded, duplicated or removed a card.
+- Explicit attack targeting: `0`-`5` picks the enemy hero or a minion, the
+  current target is shown in the hint, and Taunt blocks with a clear message.
+
 ## 2.0.0
 
 - Complete combat redesign: Hearthstone-like board with heroes, growing mana,
