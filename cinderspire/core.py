@@ -1360,11 +1360,25 @@ class Run:
     def buy_card(self, i):
         s = self.shop
         item = s["cards"][i]
-        if i in s["sold"] or self.gold < item["price"]:
+        if (f"card:{i}" in s["sold"] or i in s["sold"]
+                or self.gold < item["price"]):
             return False
         self.gold -= item["price"]
-        s["sold"].add(i)
+        s["sold"].add(f"card:{i}")
         self.add_card(item["cid"])
+        return True
+
+    def buy_potion(self, i):
+        s = self.shop
+        if self.shop is None or not (0 <= i < len(s.get("potions", []))):
+            return False
+        item = s["potions"][i]
+        if (f"potion:{i}" in s["sold"] or len(self.potions) >= 3
+                or self.gold < item["price"]):
+            return False
+        self.gold -= item["price"]
+        s["sold"].add(f"potion:{i}")
+        self.potions.append(item["pid"])
         return True
 
     def buy_relic(self):

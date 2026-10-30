@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.3.0
+
+- Drag and drop: hold a card in hand or one of your minions, drag it onto an
+  enemy minion or the enemy hero, and release to play/attack. The enemy under
+  the cursor is highlighted and its name, stats and keywords are shown while
+  dragging.
+- Fixed the shop crashing when buying a potion (`Run.buy_potion` was missing).
+- Fixed shop sold-state collisions between card slots and potion slots, so
+  buying card 1 no longer marks potion 1 as sold.
+
 ## 2.2.0
 
 - 15 new cards, three per class, built around combos and board synergies:

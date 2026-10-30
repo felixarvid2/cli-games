@@ -198,13 +198,15 @@ class Game:
             pass
         scr.keypad(True)
         try:
-            curses.mousemask(curses.ALL_MOUSE_EVENTS)
-            curses.mouseinterval(120)
+            curses.mousemask(curses.ALL_MOUSE_EVENTS
+                             | curses.REPORT_MOUSE_POSITION)
+            curses.mouseinterval(0)
             self.mouse_ok = True
         except curses.error:
             self.mouse_ok = False
         self.hot = []
         self.last_hand_click = {}
+        self.drag = None
         self.h, self.w = scr.getmaxyx()
         self.state = "title"
         self.t = 0.0
@@ -449,19 +451,95 @@ class Game:
     def hot_add(self, x, y, w, h, action):
         self.hot.append((x, y, w, h, action))
 
+    def zone_at(self, mx, my):
+        for hx, hy, hw, hh, action in reversed(self.hot):
+            if hx <= mx < hx + hw and hy <= my < hy + hh:
+                return action
+        return None
+
+    def zone_label(self, zone):
+        cb = self.cb
+        if not zone or cb is None:
+            return ""
+        if zone[0] == "hero":
+            return f"ENEMY HERO {cb.enemy.hp}/{cb.enemy.max_hp}"
+        if zone[0] == "enemy" and 0 <= zone[1] < len(cb.eboard):
+            m = cb.eboard[zone[1]]
+            kws = [k.upper() for k in ("taunt", "divine_shield", "poisonous",
+                                       "windfury", "rush") if k in m.kw]
+            return f"{m.name} {m.atk}/{m.hp}" + (
+                " " + " ".join(kws) if kws else "")
+        if zone[0] == "board" and 0 <= zone[1] < len(cb.pboard):
+            m = cb.pboard[zone[1]]
+            return f"{m.name} {m.atk}/{m.hp}"
+        if zone[0] == "hand" and 0 <= zone[1] < len(cb.hand):
+            return BOARD_CARDS[cb.hand[zone[1]]["id"]]["name"]
+        return ""
+
     def on_mouse(self):
         try:
             _, mx, my, _, bstate = curses.getmouse()
         except curses.error:
             return
-        if not (bstate & (curses.BUTTON1_CLICKED
-                          | curses.BUTTON1_DOUBLE_CLICKED
-                          | curses.BUTTON1_PRESSED)):
+        moved = bool(bstate & curses.REPORT_MOUSE_POSITION)
+
+        if bstate & curses.BUTTON1_PRESSED:
+            self.drag = dict(zone=self.zone_at(mx, my), x=mx, y=my,
+                             moved=False, hover=self.zone_at(mx, my))
             return
-        for hx, hy, hw, hh, action in reversed(self.hot):
-            if hx <= mx < hx + hw and hy <= my < hy + hh:
-                self.activate(action)
+
+        if moved:
+            if self.drag is not None:
+                if (abs(mx - self.drag["x"]) > 1
+                        or abs(my - self.drag["y"]) > 1):
+                    self.drag["moved"] = True
+                self.drag["hover"] = self.zone_at(mx, my)
+                self.drag["x"], self.drag["y"] = mx, my
+            return
+
+        if bstate & (curses.BUTTON1_RELEASED | curses.BUTTON1_CLICKED
+                     | curses.BUTTON1_DOUBLE_CLICKED):
+            drag = self.drag
+            self.drag = None
+            zone = self.zone_at(mx, my)
+            if drag is None:
+                if zone:
+                    self.activate(zone)
                 return
+            src = drag["zone"]
+            if src and zone and zone != src:
+                self.drop(src, zone)
+            elif zone:
+                self.activate(zone)
+
+    def drop(self, src, dst):
+        """Drag a hand card or one of your minions onto an enemy."""
+        cb = self.cb
+        if cb is None or self.state != "combat" or cb.phase != "player":
+            return
+        if src[0] == "hand" and 0 <= src[1] < len(cb.hand):
+            i = src[1]
+            d = BOARD_CARDS[cb.hand[i]["id"]]
+            self.row = 0
+            self.sel = i
+            if dst[0] in ("enemy", "hero"):
+                self.esel = 0 if dst[0] == "hero" else dst[1] + 1
+                if d["kind"] == "spell" and any(
+                        op[0] in ("dmg_target", "destroy_target")
+                        for op in d["effects"]):
+                    self.play(i)
+                elif d["kind"] == "spell":
+                    self.play(i)
+                else:
+                    self.play(i)
+            elif dst[0] == "board":
+                self.play(i)
+        elif src[0] == "board" and 0 <= src[1] < len(cb.player_alive()):
+            if dst[0] in ("enemy", "hero"):
+                self.row = 1
+                self.bsel = src[1]
+                self.esel = 0 if dst[0] == "hero" else dst[1] + 1
+                self.attack_action()
 
     def activate(self, act):
         kind = act[0]
@@ -1265,12 +1343,17 @@ class Game:
         log1 = 13 + off
         rule2 = 14 + off
         self.rule(2)
+        drag_hover = (self.drag.get("hover") if self.drag
+                      and self.drag.get("moved") else None)
         hero_sel = self.esel == 0
+        hero_drag = drag_hover == ("hero",)
         line = (f"{cb.enemy.name.upper()}    HP {cb.enemy.hp}/{cb.enemy.max_hp}"
                 f"    MANA {cb.enemy.mana}/{cb.enemy.max_mana}"
                 f"    HAND {len(cb.ehand)}")
-        self.put(hero_y, 2, ("\u25b6 " if hero_sel else "  ") + line,
+        self.put(hero_y, 2, ("\u25b6 " if hero_sel or hero_drag else "  ") + line,
+                 C("white", bold=True, rev=hero_drag) if hero_drag else
                  C("white", bold=True) if hero_sel else C("red", bold=True))
+        self.hot_add(0, hero_y, self.w, 1, ("hero",))
         self.draw_side(cb, "enemy", eboard_y)
         self.rule(rule1)
         self.draw_side(cb, "player", pboard_y)
@@ -1306,7 +1389,15 @@ class Game:
             hint = f"[{tgt}] ENTER attack  0-5 target  TAB rows"
         else:
             hint = f"[{tgt}] 0-5 pick  ENTER attack  TAB rows"
-        if cb.played_this_turn:
+        if self.drag and self.drag.get("moved"):
+            label = self.zone_label(drag_hover)
+            if self.drag["zone"] and self.drag["zone"][0] == "board":
+                act = "release to attack"
+            else:
+                act = "release to play"
+            hint = (f"DRAG \u2192 {label or 'the board'}   {act}   "
+                    "move over the enemy   ESC cancel")
+        elif cb.played_this_turn:
             hint = "COMBO READY  " + hint
         self.hint(hint + "  Q potion  V card  ESC")
 
@@ -1316,12 +1407,15 @@ class Game:
         gap = 1
         total = 5 * w + 4 * gap
         x0 = max(1, (self.w - total) // 2)
+        hover = (self.drag.get("hover") if self.drag
+                 and self.drag.get("moved") else None)
         for i in range(5):
             x = x0 + i * (w + gap)
             if i < len(board):
                 m = board[i]
                 sel = side == "player" and self.row == 1 and self.bsel == i
-                tgt = side == "enemy" and self.esel == i + 1
+                tgt = (side == "enemy" and self.esel == i + 1) or \
+                    hover == (("enemy", i) if side == "enemy" else ("board", i))
                 self.draw_minion_tile(y, x, w, m, sel, tgt)
                 self.hot_add(x, y, w, 4,
                              ("board" if side == "player" else "enemy", i))
@@ -1948,7 +2042,7 @@ class Game:
             if kind == "card":
                 item = s["cards"][idx]
                 price = item["price"]
-                sold = idx in s["sold"]
+                sold = (f"card:{idx}" in s["sold"] or idx in s["sold"])
                 data = BOARD_CARDS[item["cid"]]
             elif kind == "relic":
                 price = s["relic_price"]
@@ -1957,7 +2051,7 @@ class Game:
             elif kind == "potion":
                 item = s["potions"][idx]
                 price = item["price"]
-                sold = idx in s["sold"]
+                sold = f"potion:{idx}" in s["sold"]
                 data = POTIONS[item["pid"]]
             else:
                 price = s["removal"]
