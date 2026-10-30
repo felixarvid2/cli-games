@@ -170,6 +170,7 @@ class BoardCombat:
                     m.poisonous = True
                     m.kw.add("poisonous")
             board.append(m)
+            self.flash[id(m)] = 0.25
             self.log(f"{side.title()} summons {m.name}.", "green")
             if m.bc:
                 self.run_ops(side, m, m.bc)
@@ -198,13 +199,19 @@ class BoardCombat:
                         self.hurt_minion(m, a[0], src)
             elif op == "heal":
                 hero = self.player if side == "player" else self.enemy
+                before = hero.hp
                 hero.hp = min(hero.max_hp, hero.hp + a[0])
+                if hero.hp > before:
+                    self.popup(hero, f"+{hero.hp - before}", "green")
                 self.log(f"{hero.name} heals {a[0]}.", "green")
             elif op == "heal_all":
                 board = self.pboard if side == "player" else self.eboard
                 for m in board:
                     if m.alive:
+                        before = m.hp
                         m.hp = min(m.max_hp, m.hp + a[0])
+                        if m.hp > before:
+                            self.popup(m, f"+{m.hp - before}", "green")
                 self.log(f"Friendly minions heal {a[0]}.", "green")
                 for m in board:
                     if m.alive and m.cid == "p_lightwarden":
@@ -311,11 +318,16 @@ class BoardCombat:
             self.log(f"{m.name}'s Divine Shield absorbs the hit.", "gold")
             return
         m.hp -= n
+        self.shake[id(m)] = 0.32
+        self.flash[id(m)] = 0.16
         if m.owner == "enemy":
             self.damage_dealt += n
         if src is not None and "lifesteal" in getattr(src, "kw", ()):
             hero = self.player if getattr(src, "owner", "") == "player" else self.enemy
+            before = hero.hp
             hero.hp = min(hero.max_hp, hero.hp + n)
+            if hero.hp > before:
+                self.popup(hero, f"+{hero.hp - before}", "green")
         self.popup(m, f"-{n}", "red")
         if src is not None and getattr(src, "poisonous", False):
             m.hp = 0
@@ -327,11 +339,16 @@ class BoardCombat:
         if n <= 0:
             return
         hero.hp -= n
+        self.shake[id(hero)] = 0.40
+        self.flash[id(hero)] = 0.22
         if side == "enemy":
             self.damage_dealt += n
         if src is not None and "lifesteal" in getattr(src, "kw", ()):
             own = self.player if getattr(src, "owner", "") == "player" else self.enemy
+            before = own.hp
             own.hp = min(own.max_hp, own.hp + n)
+            if own.hp > before:
+                self.popup(own, f"+{own.hp - before}", "green")
         self.popup(hero, f"-{n}", "red")
         self.log(f"{hero.name} takes {n} damage.", "red")
         if side == "player":

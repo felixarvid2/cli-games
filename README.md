@@ -47,6 +47,13 @@ Options: `--seed N`, `--version`, `--reset`.
 Requires Python 3.9+ and a terminal with `curses`. No third-party packages.
 Minimum size is 78x24; 100x30 or larger looks best.
 
+## Visuals
+
+CINDERSPIRE uses a 256-colour terminal palette, per-class accent colours,
+gradient banners, rounded panels, drop shadows, animated embers and sparks,
+floating combat numbers, attack arrows, turn banners, confetti and more.
+The full catalogue of 100 visual improvements is in [VISUALS.md](VISUALS.md).
+
 ## Controls
 
 | Key | Action |

@@ -1,5 +1,23 @@
 # Changelog
 
+## 2.4.0
+
+- 100 visual improvements across every screen, catalogued in `VISUALS.md`:
+  a wider 256-colour palette, class accents/emblems, gradient wordmark,
+  segmented HP bars, relic chips, floor pips, rounded panels, drop shadows,
+  zebra lists, icon-driven cards and keycap-style help.
+- Combat feedback: floating damage/heal numbers, Divine Shield popups, hit
+  flashes, screen shake, dotted attack arrows, lethal and combo badges,
+  pulsing selection borders and animated turn banners.
+- Map: node icons, visited ticks, travelled trail, boss crown, legend and a
+  rounded side panel with relics and potions.
+- Screens: shop awning/stamps/quotes, reward card fan/sparkles/coin stacks,
+  animated campfire, event emblems and choice chips, codex progress, history
+  zebra rows, pause/settings icons, confetti victory and ember defeat screens.
+- New `cinderspire/visuals.py` holds palette, glyph, motif and easing data.
+- Fixed normal fights being labelled `BOSS` in the header.
+- Rewrote the help screen and class descriptions for board combat.
+
 ## 2.3.0
 
 - Drag and drop: hold a card in hand or one of your minions, drag it onto an

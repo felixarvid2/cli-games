@@ -722,8 +722,8 @@ ACHIEVEMENTS = {
 }
 
 TIPS = {
-    "combat": "Block is wiped at the start of your turn - spend it before you end.",
-    "intent": "The line above an enemy is exactly what it will do next.",
+    "combat": "Attack the hero when the board is safe; trade when it is not.",
+    "intent": "Taunt minions must be attacked before the enemy hero.",
     "reward": "You can skip a card. Small decks draw their best cards more often.",
     "shop": "Card removal is often the strongest thing you can buy.",
     "rest": "Upgrading a key card usually beats adding a weak one.",
@@ -869,19 +869,19 @@ CLASSES = {
     "warden": dict(
         name="The Warden", color="red", starter="bash",
         blurb="Strength, heavy blows and blood price.",
-        detail="Big attacks, self-damage and raw Strength."),
+        detail="Taunt, big bodies and Charge. Win the long board."),
     "ashblade": dict(
         name="The Ashblade", color="green", starter="poison_stab",
         blurb="Poison, shivs and card draw.",
-        detail="Stack Poison, throw Shivs, draw through your deck."),
+        detail="Poison, Combo bursts and cheap card draw."),
     "emberwright": dict(
         name="The Emberwright", color="blue", starter="beam_cell",
         blurb="Energy, Burn and machines.",
-        detail="Gain Energy, add Burns to your own deck, power up."),
+        detail="Spell chains, burn and spell-cast triggers."),
     "pilgrim": dict(
         name="The Pilgrim", color="gold", starter="smite",
         blurb="Block, healing and thorns.",
-        detail="Heal, stack Block and punish attackers."),
+        detail="Healing, Divine Shield and Inner Fire combos."),
 }
 
 STARTERS = {
@@ -1607,7 +1607,7 @@ POOL = {r: [c["id"] for c in CARDS.values() if c["rarity"] == r]
 CLASSES["paladin"] = dict(
     name="The Silver Hand", color="gold", starter="pal_reinforce",
     blurb="Divine shields, recruits and blessings.",
-    detail="Absorb hits with Divine Shield and swarm with Recruits.")
+    detail="Divine Shield, Recruits and board-wide buffs.")
 
 STARTERS["paladin"] = (["pal_strike"] * 4 + ["pal_defend"] * 3
                        + ["pal_faith", "pal_aegis_blessing",
