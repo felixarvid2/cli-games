@@ -24,6 +24,8 @@ class Contact:
     cargo: str = ""
     flash: float = 0.0
     lock: bool = False
+    mission: str = ""          # contract this contact belongs to
+    tag: str = ""              # escort | rescue | wanted | contraband
 
     @property
     def name(self):

@@ -6,6 +6,7 @@ import random
 from dataclasses import dataclass, field
 
 from . import galaxy
+from . import missions as mission_mod
 from .data import MAX_FUEL, START_CREDITS, legal_for, rank_for
 from .ships import LARGE_BAY_BONUS, PLAYER_SHIPS, player_ship
 from .flight import FlightModel, Vec3
@@ -267,6 +268,10 @@ class GameState:
         self.missile_target = None
         self.dead = False
         self.docked_at = None
+        self.missions = []      # Mission objects, alive for this run
+        self.boards = {}        # "g:i" -> {offers, next}
+        self.completed = []     # mission ids already paid
+        self.notes = []
 
     # -- system ----------------------------------------------------------
     @property
@@ -304,6 +309,7 @@ class GameState:
         self.mode = "flight"
         self.hull = max(self.hull, 1.0)
         self.say("Launch. Fly toward the station slot to dock.")
+        mission_mod.spawn_contacts(self)
 
     def dock(self):
         self.mode = "docked"
@@ -320,6 +326,8 @@ class GameState:
         self.jump = None
         self.pilot.system = self.system.index
         self.say(f"Docked at {self.system.name} station.")
+        for note in mission_mod.on_dock(self):
+            self.say(note)
 
     # -- hyperspace ------------------------------------------------------
     def can_jump(self, index):
@@ -357,8 +365,11 @@ class GameState:
         self.contacts = []
         self.jump = None
         self.say(f"Arrived at {self.system.name}. Station bearing 000.")
+        for note in mission_mod.on_jump(self):
+            self.say(note)
         from . import combat
         combat.spawn(self, arrivals=True)
+        mission_mod.spawn_contacts(self)
 
     # -- save/load -------------------------------------------------------
     def to_dict(self):
@@ -366,7 +377,10 @@ class GameState:
                 "pilot": self.pilot.to_dict(),
                 "flight": self.flight.to_dict(),
                 "hull": self.hull, "shields": self.shields,
-                "banks": self.banks, "mode": self.mode}
+                "banks": self.banks, "mode": self.mode,
+                "time": self.time,
+                "missions": [m.to_dict() for m in self.missions],
+                "boards": self.boards, "completed": self.completed}
 
     def save(self, path=SAVE_PATH):
         write_json(path, self.to_dict())
@@ -396,6 +410,11 @@ class GameState:
         if len(state.banks) != 4:
             state.banks = [BANK] * 4
         state.mode = data.get("mode", "docked")
+        state.time = float(data.get("time", 0.0))
+        state.missions = [mission_mod.Mission.from_dict(d)
+                          for d in (data.get("missions") or [])]
+        state.boards = dict(data.get("boards") or {})
+        state.completed = list(data.get("completed") or [])
         state.market = Market.for_system(state.system)
         return state
 

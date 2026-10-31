@@ -7,7 +7,7 @@ import os
 import sys
 import time
 
-from . import __version__, combat, galaxy, sketch
+from . import __version__, combat, galaxy, missions, sketch
 from . import visuals as V
 from .core import (GameState, clear_save, load_profile, save_profile)
 from .data import GOOD_BY_KEY, MAX_FUEL, MAX_MISSILES, rank_for
@@ -88,6 +88,9 @@ class Game:
         self.autodock = 0.0
         self.frames = 0
         self.pause_sel = 0
+        self.mission_tab = 0
+        self.mission_sel = 0
+        self.journal_sel = 0
 
     # -- colours ---------------------------------------------------------
     def init_colours(self, enabled=True):
@@ -271,6 +274,8 @@ class Game:
                 self.chart_sel = state.pilot.system
                 self.target_speed = 200.0
         combat.step(state, dt)
+        for note in missions.step(state, dt):
+            self.toast_now(note, 2.5)
         state.station.step(dt)
         self.autodock = max(0.0, self.autodock - dt)
         if state.pilot.has("docking"):
@@ -724,7 +729,8 @@ class Game:
     def draw_flight_hints(self):
         hints = (("S/X", "pitch"), (",/.", "roll"), ("A/Z", "speed"),
                  ("SPC", "fire"), ("T", "lock"), ("M", "missile"),
-                 ("E", "ECM"), ("H", "chart"), ("L", "level"))
+                 ("E", "ECM"), ("H", "chart"), ("4", "journal"),
+                 ("R", "recover"))
         x = 2
         y = self.h - 2
         for key, label in hints:
@@ -771,14 +777,22 @@ class Game:
             self.push("status")
         elif key == "3":
             self.push("inventory")
+        elif key == "4":
+            self.push("journal")
+        elif key == "r":
+            if not missions.recover(state):
+                state.say("Nothing to recover here")
 
     # -- docked -----------------------------------------------------------
     def docked_items(self):
         state = self.state
+        open_missions = len(missions.offers(state)) if state else 0
         items = [("buy", "Buy cargo"), ("sell", "Sell cargo"),
+                 ("missions", f"Missions ({open_missions})"),
                  ("equip", "Equipment"), ("refuel", "Refuel tanks"),
                  ("repair", "Repair hull"), ("fine", "Clear record"),
-                 ("status", "Status"), ("inventory", "Inventory")]
+                 ("status", "Status"), ("inventory", "Inventory"),
+                 ("journal", "Journal")]
         if state.pilot.has("galactic"):
             items.append(("galactic", "Galactic hyperdrive"))
         items += [("launch", "Launch"), ("save", "Save and quit")]
@@ -876,6 +890,15 @@ class Game:
     def do_equip(self):
         self.equip_sel = 0
         self.push("equip")
+
+    def do_missions(self):
+        self.mission_tab = 0
+        self.mission_sel = 0
+        self.push("missions")
+
+    def do_journal(self):
+        self.journal_sel = 0
+        self.push("journal")
 
     def do_status(self):
         self.push("status")
@@ -1110,6 +1133,157 @@ class Game:
 
     def key_sell(self, key):
         self.key_market(key, "sell")
+
+    # -- missions ----------------------------------------------------------
+    def mission_list(self):
+        """The rows for the current tab: (mission, title, subtitle)."""
+        state = self.state
+        if self.mission_tab == 0:
+            return missions.offers(state)
+        return missions.active(state)
+
+    def draw_missions(self):
+        state = self.state
+        self.header()
+        tab = "OFFERS" if self.mission_tab == 0 else "JOURNAL"
+        self.put(2, 2, f"MISSION BOARD {self.g['dot']} {state.system.name.upper()}",
+                 self.C("gold", True))
+        self.put(2, 34, f"[{tab}]", self.C("cyan", True))
+        self.put(2, 46, f"CR {V.money(state.pilot.credits)}", self.C("gold"))
+        rows = self.mission_list()
+        if rows:
+            self.mission_sel = max(0, min(self.mission_sel, len(rows) - 1))
+        visible = max(3, self.h - 8)
+        top = max(0, self.mission_sel - visible + 1)
+        self.box(3, 1, self.h - 5, 44, "navy",
+                 "OPEN CONTRACTS" if self.mission_tab == 0 else "ACCEPTED")
+        if not rows:
+            self.put(5, 3, "No contracts on offer." if self.mission_tab == 0
+                     else "You have no active contracts.", self.C("faint"))
+        for i, mission in enumerate(rows[top:top + visible]):
+            idx = i + top
+            y = 4 + i
+            selected = idx == self.mission_sel
+            attr = (self.C("gold", True) | curses.A_REVERSE if selected
+                    else self.C("white"))
+            self.put(y, 3, f" {V.cut(mission.title, 38):<38}", attr)
+            if self.mission_tab == 1:
+                left = mission.remaining(state.time)
+                colour = "green"
+                if left is not None and left < 300:
+                    colour = "red"
+                self.put(y, 43, ("!" if colour == "red" else " "), self.C(colour))
+        self.draw_mission_detail(rows[self.mission_sel] if rows else None)
+        hint = ("Up/Down pick   ENTER accept   TAB journal   ESC back"
+                if self.mission_tab == 0 else
+                "Up/Down pick   A abandon   TAB offers   ESC back")
+        self.put(self.h - 2, 2, hint, self.C("dim"))
+
+    def draw_mission_detail(self, mission):
+        state = self.state
+        px = 46
+        pw = max(28, self.w - px - 1)
+        self.box(3, px, self.h - 5, pw, "cyan", "CONTRACT")
+        if mission is None:
+            return
+        lines = [(mission.title, "gold"),
+                 ("", None),
+                 ("To: " + (mission.dest_name() or "-"), "white")]
+        dest = mission.dest_tuple
+        if dest:
+            target = galaxy.system(dest[0], dest[1])
+            d = galaxy.distance(state.system, target)
+            lines.append((f"{d:.1f} LY  tech {target.tech}  {target.economy_short}",
+                          "dim"))
+            from . import navigation
+            route = navigation.plan(state.pilot.galaxy, state.pilot.system,
+                                    dest[1])
+            if route.ok:
+                note = f"{route.jumps} jump(s), {route.total:.1f} LY by route"
+                if route.refuel_at:
+                    note += " + refuel"
+                lines.append((note, "white"))
+                if route.fuel_cost:
+                    lines.append((f"fuel about {route.fuel_cost:.1f} CR", "dim"))
+            else:
+                lines.append(("no route: out of jump range", "red"))
+            lines.append((f"risk {self.risk_word(target.danger)}",
+                          "amber" if target.danger > 0.5 else "green"))
+        lines.append((f"Pay: {mission.pay:.0f} CR", "gold"))
+        lines.append(("Deadline: " + mission.deadline_text(state.time), "white"))
+        if mission.cargo_key:
+            lines.append((f"Cargo: {mission.cargo_qty}t {mission.cargo_name()}",
+                          "cyan"))
+            free = state.pilot.cargo_free()
+            lines.append((f"hold: {free}t free of {state.pilot.cargo_cap}t",
+                          "green" if free >= mission.cargo_qty else "red"))
+        if mission.kind == "bounty":
+            lines.append((f"Target: {mission.target_name}", "red"))
+        lines.append((f"Difficulty {mission.difficulty}", "dim"))
+        lines.append(("", None))
+        y = 4
+        for text, colour in lines:
+            if text:
+                self.put(y, px + 2, V.cut(text, pw - 4),
+                         self.C(colour) if colour else 0)
+            y += 1
+            if y > self.h - 5:
+                break
+        for i, text in enumerate(V.wrap(mission.brief, pw - 4)[:4]):
+            self.put(y + i, px + 2, text, self.C("dim"))
+
+    def risk_word(self, danger):
+        return "low" if danger < 0.33 else ("medium" if danger < 0.66 else "high")
+
+    def key_missions(self, key):
+        state = self.state
+        if key == "tab":
+            self.mission_tab = 1 - self.mission_tab
+            self.mission_sel = 0
+            return
+        rows = self.mission_list()
+        if rows:
+            self.mission_sel = max(0, min(self.mission_sel, len(rows) - 1))
+        if key in ("up", "w", "k"):
+            self.mission_sel = max(0, self.mission_sel - 1)
+        elif key in ("down", "s", "j"):
+            self.mission_sel = min(max(0, len(rows) - 1), self.mission_sel + 1)
+        elif key in ("enter", " ") and rows and self.mission_tab == 0:
+            ok, msg = missions.accept(state, rows[self.mission_sel])
+            self.toast_now(msg, 2.2)
+            if ok:
+                state.save_after_trade()
+                self.mission_sel = 0
+        elif key == "a" and rows and self.mission_tab == 1:
+            ok, msg = missions.abandon(state, rows[self.mission_sel])
+            self.toast_now(msg, 2.0)
+            if ok:
+                state.save_after_trade()
+                self.mission_sel = 0
+        elif key in ("esc", "q"):
+            self.back()
+
+    def draw_journal(self):
+        state = self.state
+        self.header()
+        rows = missions.summary(state)
+        self.put(2, 2, f"JOURNAL {self.g['dot']} {len(rows)} active",
+                 self.C("gold", True))
+        if not rows:
+            self.put(4, 3, "No contracts. Look at a station mission board.",
+                     self.C("faint"))
+        for i, (mid, title, progress, deadline) in enumerate(rows):
+            y = 4 + i * 3
+            if y + 2 >= self.h - 2:
+                break
+            self.put(y, 3, V.cut(title, 46), self.C("white", True))
+            self.put(y + 1, 5, V.cut(progress, 44), self.C("cyan"))
+            self.put(y + 1, 52, deadline, self.C("amber"))
+        self.put(self.h - 2, 2, "ESC back", self.C("dim"))
+
+    def key_journal(self, key):
+        if key in ("esc", "q", "enter", "4"):
+            self.back()
 
     # -- equipment --------------------------------------------------------
     def draw_equip(self):

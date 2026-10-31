@@ -181,6 +181,9 @@ class Market:
     def sell(self, pilot, key, qty=1):
         held = pilot.cargo.get(key, 0)
         reserved = pilot.reserved.get(key, 0) if hasattr(pilot, "reserved") else 0
+        if held > 0 and held <= reserved:
+            return False, (f"{reserved}t {self.listings[key].good.name} is "
+                           "reserved for a mission")
         quote = self.quote_sell(key, qty, held, reserved)
         if not quote.ok():
             name = self.listings[key].good.name

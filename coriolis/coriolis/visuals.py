@@ -81,3 +81,21 @@ def money(value):
 def crouch(text, width):
     """Right-align inside width."""
     return text.rjust(width)
+
+
+def wrap(text, width):
+    """Greedy word wrap; always returns at least one line."""
+    if width <= 1:
+        return [text[:max(0, width)]]
+    lines, line = [], ""
+    for word in str(text).split():
+        if not line:
+            line = word
+        elif len(line) + 1 + len(word) <= width:
+            line += " " + word
+        else:
+            lines.append(line)
+            line = word
+    if line:
+        lines.append(line)
+    return lines or [""]
