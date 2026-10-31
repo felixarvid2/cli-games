@@ -111,6 +111,15 @@ class MarketTest(unittest.TestCase):
         self.assertTrue(routes)
         self.assertGreater(routes[0][0], 0)
 
+    def test_routes_respect_the_wallet_and_the_hold(self):
+        pilot = FakePilot(credits=100.0)
+        routes = best_routes(self.lave, galaxy.galaxy(1), pilot)
+        self.assertTrue(routes)
+        for score, system, good, margin, tonnes in routes:
+            self.assertLessEqual(tonnes, pilot.cargo_free())
+            self.assertLessEqual(tonnes * margin, pilot.credits + 1e-6)
+        self.assertEqual(routes[0][0], max(r[0] for r in routes))
+
     def test_rows_are_in_goods_order(self):
         self.assertEqual([r[0] for r in self.market.rows()], [g.key for g in GOODS])
 

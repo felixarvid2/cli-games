@@ -6,9 +6,8 @@ import random
 from dataclasses import dataclass, field
 
 from . import galaxy
-from .data import (CARGO_BASE, MAX_FUEL, MAX_MISSILES, RANKS, START_CREDITS,
-                   legal_for, rank_for)
-from .flight import FlightModel, Mat3, Vec3
+from .data import CARGO_BASE, MAX_FUEL, START_CREDITS, legal_for, rank_for
+from .flight import FlightModel, Vec3
 from .market import Market
 from .station import Station
 

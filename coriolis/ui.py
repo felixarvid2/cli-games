@@ -10,10 +10,9 @@ import time
 from . import __version__, combat, galaxy, sketch
 from . import visuals as V
 from .core import (GameState, clear_save, load_profile, save_profile)
-from .data import (GOOD_BY_KEY, GOODS, MAX_FUEL, MAX_MISSILES, rank_for)
+from .data import GOOD_BY_KEY, MAX_FUEL, MAX_MISSILES, rank_for
 from .flight import Mat3, Vec3
 from .market import Market
-from .ships import SHIPS
 from . import station as st
 
 LOGO = (
@@ -768,14 +767,16 @@ class Game:
         if y + h > self.h - 3:
             return
         from .market import best_routes
-        routes = best_routes(state.system, galaxy.galaxy(state.pilot.galaxy))
+        routes = best_routes(state.system, galaxy.galaxy(state.pilot.galaxy),
+                             state.pilot)
         self.box(y, 2, h, 44, "navy", "BEST HOP FROM HERE")
         if not routes:
             self.put(y + 2, 4, "Nothing worth carrying. Try elsewhere.", self.C("faint"))
             return
-        for i, (margin, sysm, good) in enumerate(routes[:3]):
+        for i, (score, sysm, good, margin, tonnes) in enumerate(routes[:3]):
             d = galaxy.distance(state.system, sysm)
-            line = f"{sysm.name:<10} {d:4.1f} LY  {good.name:<11} {margin:+5.1f}/t"
+            line = (f"{sysm.name[:10]:<10} {d:4.1f} LY {good.name[:9]:<9}"
+                    f" {tonnes:2d}t {score:+5.0f}")
             self.put(y + 1 + i, 4, V.cut(line, 40), self.C("green" if i == 0 else "white"))
 
     def draw_station_panel(self):

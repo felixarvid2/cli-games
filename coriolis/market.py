@@ -7,13 +7,13 @@ farmed by buying and selling the same crate back.
 """
 
 import zlib
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
-from .data import GOODS, GOOD_BY_KEY
+from .data import GOODS
 
 BASE_STOCK = 40
 SPREAD = 0.05      # dealer's cut, each way
-IMPACT = 0.02      # price movement per unit you trade this visit
+IMPACT = 0.008     # price movement per unit you trade this visit
 
 
 @dataclass
@@ -25,11 +25,14 @@ class Listing:
     bought: int = 0
     sold: int = 0
 
-    def buy_price(self):
-        return round(max(0.1, self.price * (1 + SPREAD) * (1 + IMPACT * self.bought)), 2)
+    def buy_price(self, extra=0):
+        """Price of the next tonne, allowing for units already traded."""
+        return round(max(0.1, self.price * (1 + SPREAD)
+                         * (1 + IMPACT * (self.bought + extra))), 2)
 
-    def sell_price(self):
-        return round(max(0.05, self.price * (1 - SPREAD) * (1 - IMPACT * self.sold)), 2)
+    def sell_price(self, extra=0):
+        return round(max(0.05, self.price * (1 - SPREAD)
+                         * (1 - IMPACT * (self.sold + extra))), 2)
 
 
 class Market:
@@ -84,7 +87,7 @@ class Market:
         qty = min(max(1, int(qty)), listing.stock, room)
         cost, taken = 0.0, 0
         for _ in range(qty):
-            price = listing.buy_price()
+            price = listing.buy_price(taken)
             if round(cost + price, 1) > pilot.credits + 1e-9:
                 break
             cost += price
@@ -104,8 +107,8 @@ class Market:
             return False, "You have none"
         qty = min(max(1, int(qty)), have)
         earned = 0.0
-        for _ in range(qty):
-            earned += listing.sell_price()
+        for i in range(qty):
+            earned += listing.sell_price(i)
             listing.sold += 1
         listing.stock += qty
         pilot.credits = round(pilot.credits + earned, 1)
@@ -113,8 +116,27 @@ class Market:
         return True, f"Sold {qty}t {listing.good.name} for {earned:.1f} CR"
 
 
-def best_routes(system, systems, max_ly=7.0, limit=5):
-    """Most profitable single-hop trades from a system, for the chart panel."""
+def affordable(listing, credits, room):
+    """How many tonnes the wallet and the hold actually cover, at the real curve."""
+    stock = listing.stock
+    tonnes, cost = 0, 0.0
+    while tonnes < room and tonnes < stock:
+        price = listing.buy_price(tonnes)
+        if round(cost + price, 1) > credits + 1e-9:
+            break
+        cost += price
+        tonnes += 1
+    return tonnes, round(cost, 2)
+
+
+def best_routes(system, systems, pilot=None, max_ly=7.0, limit=5):
+    """The hops worth making from here.
+
+    With a pilot, routes are ranked by the profit one trip would actually make
+    (margin x tonnes the hold and the wallet allow), not by margin per tonne -
+    otherwise the advice is 53-credit furs the player cannot afford.
+    Returns (profit, system, good, margin_per_tonne, tonnes).
+    """
     from .galaxy import distance
 
     here = Market.for_system(system)
@@ -126,15 +148,21 @@ def best_routes(system, systems, max_ly=7.0, limit=5):
         if d > max_ly:
             continue
         there = Market.for_system(other)
-        best = None
         for good in GOODS:
-            if here.stock(good.key) <= 0:
+            listing = here.listings[good.key]
+            if listing.stock <= 0:
                 continue
-            margin = there.listings[good.key].sell_price() - here.listings[good.key].buy_price()
-            if best is None or margin > best[0]:
-                best = (margin, good, here.listings[good.key].buy_price(),
-                        there.listings[good.key].sell_price())
-        if best and best[0] > 0:
-            out.append((best[0], other, best[1]))
-    out.sort(key=lambda row: -row[0])
+            if pilot is None:
+                tonnes = min(listing.stock, BASE_STOCK)
+                cost = sum(listing.buy_price(i) for i in range(tonnes))
+            else:
+                tonnes, cost = affordable(listing, pilot.credits, pilot.cargo_free())
+            if tonnes <= 0:
+                continue
+            revenue = sum(there.listings[good.key].sell_price(i) for i in range(tonnes))
+            profit = round(revenue - cost, 1)
+            if profit <= 0:
+                continue
+            out.append((profit, other, good, round(profit / tonnes, 2), tonnes))
+    out.sort(key=lambda row: (-row[0], row[4]))
     return out[:limit]
