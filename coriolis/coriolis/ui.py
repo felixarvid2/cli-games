@@ -938,7 +938,7 @@ class Game:
         hints = (("S/X", "pitch"), (",/.", "roll"), ("A/Z", "speed"),
                  ("SPC", "fire"), ("T", "lock"), ("M", "missile"),
                  ("E", "ECM"), ("H", "chart"), ("4", "journal"),
-                 ("R", "recover"), ("C", "auto-dock"), ("J", "jettison"))
+                 ("R", "recover"), ("C", "auto-dock"))
         x = 2
         y = self.h - 2
         for key, label in hints:
@@ -1000,6 +1000,8 @@ class Game:
                 state.say("Nothing to recover here")
         elif key == "j":
             combat.jettison(state)
+        elif key == "n":
+            combat.mine(state)
 
     # -- docked -----------------------------------------------------------
     def docked_items(self):
@@ -1750,6 +1752,8 @@ class Game:
             ("C", "docking computer", "toggle on/off"),
             ("4", "journal", "active contracts"),
             ("R", "recover survivors", "within 100 m"),
+            ("J", "jettison cargo", "answers a pirate"),
+            ("N", "mine an asteroid", "needs a mining laser"),
             ("H / 1", "galactic chart", ""),
             ("2 / 3", "status / inventory", ""),
         ]

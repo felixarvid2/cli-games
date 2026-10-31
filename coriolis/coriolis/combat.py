@@ -32,6 +32,8 @@ class Contact:
     demand_jettison: int = -1
     flagged: bool = False
     qty: int = 1
+    resource: str = ""
+    remaining: int = 0
 
     @property
     def name(self):
@@ -57,7 +59,8 @@ def make(kind, key, pos, hostile=False, orient=None):
                 "military": 1}.get(t.role, 0)
     return Contact(kind=kind, type=t, pos=pos, orient=orient or Mat3.identity(),
                    shields=t.shields, energy=t.energy, hostile=hostile,
-                   cooldown=0.4, missiles=rack)
+                   cooldown=0.0 if kind == "cargo" else 0.4,
+                   missiles=rack)
 
 
 def _ring(rng, centre, radius, height=0.0):
@@ -105,12 +108,90 @@ def spawn(state, arrivals=False):
                 created.append(make("ship", rng.choice(HUNTERS),
                                     _ring(rng, state.flight.pos, rng.uniform(9000, 16000))))
     # An asteroid field lives near the sun.
-    if state.flight.pos.length() > 0 and rng.random() < 0.25:
+    if state.flight.pos.length() > 0 and rng.random() < 0.35:
         for _ in range(rng.randint(1, 3)):
-            created.append(make("asteroid", "asteroid",
-                                _ring(rng, state.flight.pos, rng.uniform(3000, 9000))))
+            rock = make("asteroid", "asteroid",
+                        _ring(rng, state.flight.pos, rng.uniform(3000, 9000)))
+            give_ore(state, rock, rng)
+            created.append(rock)
     state.contacts.extend(created)
     return created
+
+
+ORE_TABLE = (("minerals", 0.45), ("gold", 0.2), ("platinum", 0.12),
+             ("radioactives", 0.15), ("gem", 0.08))
+MINE_RANGE = 900.0
+MINE_DRILL = 0.8
+
+
+def give_ore(state, rock, rng=None):
+    """Give an asteroid a finite load of one commodity."""
+    rng = rng or state.rng
+    roll = rng.random()
+    acc = 0.0
+    key = "minerals"
+    for name, weight in ORE_TABLE:
+        acc += weight
+        if roll <= acc:
+            key = name
+            break
+    if key == "gem":
+        key = "gems"
+    if key not in state.market.listings:
+        key = "minerals"
+    rock.resource = key
+    rock.remaining = rng.randint(4, 12)
+    return rock
+
+
+def mine(state):
+    """Cut a tonne of ore out of the nearest asteroid."""
+    pilot = state.pilot
+    if not pilot.has("mining"):
+        state.say("A mining laser is needed to cut ore")
+        return False
+    if state.cool > 0:
+        return False
+    forward = state.flight.forward
+    pos = state.flight.pos
+    best = None
+    for c in state.contacts:
+        if c.kind != "asteroid":
+            continue
+        rel = c.pos - pos
+        dist = rel.length()
+        if dist > MINE_RANGE + c.size * 0.5:
+            continue
+        if forward.angle_to(rel) > 0.28:
+            continue
+        if best is None or dist < best[0]:
+            best = (dist, c)
+    if best is None:
+        state.say("No asteroid in the mining arc (900 m, ahead)")
+        return False
+    if energy_total(state) < 1.0:
+        state.say("Energy banks empty")
+        return False
+    dist, rock = best
+    if rock.remaining <= 0:
+        state.say("That asteroid is worked out")
+        return False
+    drain(state, 1.0)
+    state.cool = MINE_DRILL
+    rock.remaining -= 1
+    frag = make("cargo", "canister", rock.pos + Vec3(0.0, 0.0, 0.0))
+    frag.cargo = rock.resource
+    frag.qty = 1
+    frag.tag = "fragment"
+    state.contacts.append(frag)
+    from .data import GOOD_BY_KEY
+    name = GOOD_BY_KEY[rock.resource].name if rock.resource in GOOD_BY_KEY else rock.resource
+    if rock.remaining <= 0:
+        state.contacts.remove(rock)
+        state.say(f"Cut the last of the {name} out of the asteroid")
+    else:
+        state.say(f"Cut 1t {name} loose ({rock.remaining}t left in the rock)")
+    return True
 
 
 def has_mass_lock(state):

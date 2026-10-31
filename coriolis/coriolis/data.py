@@ -75,6 +75,8 @@ EQUIPMENT = (
               "Twice the punch of the pulse laser."),
     Equipment("scoop", "Fuel Scoops", 525.0, 5,
               "Scoop cargo canisters, and skim suns for fuel."),
+    Equipment("mining", "Mining Laser", 900.0, 4,
+              "Cuts ore out of asteroids. Fragments must be scooped."),
     Equipment("bomb", "Energy Bomb", 900.0, 7,
               "One shot. Kills everything nearby."),
     Equipment("escape", "Escape Capsule", 1000.0, 6,
