@@ -114,11 +114,15 @@ def main():
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--start-docked", action="store_true")
     ap.add_argument("--contacts", type=int, default=0)
+    ap.add_argument("--galaxy", type=int, default=1)
+    ap.add_argument("--no-colour", action="store_true")
     ns = ap.parse_args()
     keys = ns.keys.encode().decode("unicode_escape")
-    argv = ["--seed", str(ns.seed)]
+    argv = ["--seed", str(ns.seed), "--galaxy", str(ns.galaxy)]
     if ns.start_docked:
         argv.append("--start-docked")
+    if ns.no_colour:
+        argv.append("--no-colour")
     opts = ui.parse_args(argv)
     opts.rows, opts.cols = ns.rows, ns.cols
     game, screen = play(opts, keys, ns.contacts)
