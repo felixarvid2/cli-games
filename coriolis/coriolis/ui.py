@@ -66,6 +66,7 @@ class Game:
             pass
         scr.keypad(True)
         self.attrs = self.init_colours(not opts.no_colour)
+        self.stack = ["title"]
         self.screen = "title"
         self.menu = 0
         self.state = None
@@ -81,7 +82,6 @@ class Game:
         self.market_sel = 0
         self.equip_sel = 0
         self.qty = 1
-        self.help_from = "title"
         self.toast = ""
         self.toast_until = 0.0
         self.flash = 0.0
@@ -191,20 +191,48 @@ class Game:
             self.put(self.h - 1, 1, msg.ljust(self.w - 2),
                      self.C("gold", True) | curses.A_REVERSE)
 
+    # -- screen stack ------------------------------------------------------
+    def push(self, screen):
+        """Open a screen on top of the current one."""
+        self.stack.append(screen)
+        self.screen = screen
+
+    def back(self):
+        """Close the current screen; never leaves the stack empty."""
+        if len(self.stack) > 1:
+            self.stack.pop()
+        self.screen = self.stack[-1]
+
+    def go(self, screen):
+        """Replace the whole stack (new run, death, quitting to title)."""
+        self.stack = [screen]
+        self.screen = screen
+
+    @property
+    def parent(self):
+        return self.stack[-2] if len(self.stack) > 1 else self.stack[0]
+
+    def escape(self):
+        """Escape means 'back', except in flight where it pauses."""
+        here = self.screen
+        if here in ("title", "dead"):
+            return
+        if here == "flight":
+            self.push("pause")
+        elif here == "pause":
+            self.back()
+        else:
+            self.back()
+
     def handle(self, ch):
         key = keyname(ch)
         if key == "" and ch != -1:
             return
-        if key == "esc" and self.screen not in ("title", "dead"):
-            if self.screen == "help":
-                self.screen = self.help_from
-            else:
-                self.help_from = self.screen
-                self.screen = "pause"
+        if key == "esc":
+            self.escape()
             return
         if key == "?" and self.screen != "help":
-            self.help_from = self.screen
-            self.screen = "help"
+            self.push("help")
             return
         handler = getattr(self, "key_" + self.screen, None)
         if handler:
@@ -283,7 +311,7 @@ class Game:
     def dock(self):
         state = self.state
         state.dock()
-        self.screen = "docked"
+        self.go("docked")
         self.docked_sel = 0
         self.market_sel = 0
         self.equip_sel = 0
@@ -309,19 +337,20 @@ class Game:
             state.pilot.equipment.discard("escape")
             state.pilot.cargo = {}
             state.pilot.deaths += 1
-            state.hull = 50.0
-            state.shields = {"fore": 100.0, "aft": 100.0}
+            state.hull = state.hull_max * 0.5
+            state.shields = {"fore": state.shield_max,
+                             "aft": state.shield_max}
             state.dead = False
             state.dock()
             state.say("Escape capsule fired. You wake up in the station.")
-            self.screen = "docked"
+            self.go("docked")
             return
         self.profile.deaths += 1
         self.profile.kills = max(self.profile.kills, state.pilot.kills)
         save_profile(self.profile)
         clear_save()
         self.has_save = False
-        self.screen = "dead"
+        self.go("dead")
 
     # -- screens ---------------------------------------------------------
     def draw_resize(self):
@@ -369,8 +398,7 @@ class Game:
             elif item == "Continue":
                 self.continue_game()
             elif item == "Controls":
-                self.help_from = "title"
-                self.screen = "help"
+                self.push("help")
             else:
                 self.screen = "quit"
         elif key == "q":
@@ -388,7 +416,7 @@ class Game:
             self.toast_now("Docked at Lave. Buy low, sell high.", 3.0)
             return
         self.state.launch()
-        self.screen = "chart"
+        self.go("chart")
         self.toast_now("Welcome, Commander. Pick a destination.", 3.0)
 
     def continue_game(self):
@@ -399,11 +427,11 @@ class Game:
         self.state = state
         self.chart_sel = state.pilot.system
         if state.mode == "docked":
-            self.screen = "docked"
+            self.go("docked")
         else:
             state.launch()
             self.target_speed = 200.0
-            self.screen = "flight"
+            self.go("flight")
 
     # -- shared header ----------------------------------------------------
     def header(self, left="", right=""):
@@ -546,7 +574,10 @@ class Game:
                 self.toast_now("Choose another system first")
                 return
             if state.begin_jump(self.chart_sel):
-                self.screen = "flight"
+                if self.parent == "flight":
+                    self.back()
+                else:
+                    self.go("flight")
                 self.target_speed = 0.0
                 self.axes = {"pitch": 0.0, "roll": 0.0}
             else:
@@ -620,12 +651,12 @@ class Game:
         self.bar(y, 6, 12, f.speed, f.max_speed, "green")
         self.put(y, 19, f"{speed:4d} m/s", self.C("white"))
         self.put(y, 31, "FORE", self.C("dim"))
-        self.bar(y, 36, 10, state.shields["fore"], 100, "cyan")
+        self.bar(y, 36, 10, state.shields["fore"], state.shield_max, "cyan")
         self.put(y, 48, "AFT", self.C("dim"))
-        self.bar(y, 52, 10, state.shields["aft"], 100, "cyan")
+        self.bar(y, 52, 10, state.shields["aft"], state.shield_max, "cyan")
         self.put(y, 64, f"HULL", self.C("dim"))
-        self.bar(y, 69, 8, max(0, state.hull), 100,
-                 "green" if state.hull > 40 else "red")
+        self.bar(y, 69, 8, max(0, state.hull), state.hull_max,
+                 "green" if state.hull > state.hull_max * 0.4 else "red")
         y += 1
         for i, bank in enumerate(state.banks):
             self.put(y, 2 + i * 9, f"E{i + 1}", self.C("dim"))
@@ -735,11 +766,11 @@ class Game:
             self.level_roll()
         elif key in ("h", "1"):
             self.chart_sel = state.pilot.system
-            self.screen = "chart"
+            self.push("chart")
         elif key == "2":
-            self.screen = "status"
+            self.push("status")
         elif key == "3":
-            self.screen = "inventory"
+            self.push("inventory")
 
     # -- docked -----------------------------------------------------------
     def docked_items(self):
@@ -773,7 +804,7 @@ class Game:
                  self.C("dim"))
 
     def draw_trade_advice(self, after):
-        """The best single hop from here: the quickest way to make a credit."""
+        """The best hops from here, net of fuel, with the risk on the far end."""
         state = self.state
         y = 4 + after + 1
         h = 6
@@ -782,15 +813,19 @@ class Game:
         from .market import best_routes
         routes = best_routes(state.system, galaxy.galaxy(state.pilot.galaxy),
                              state.pilot)
-        self.box(y, 2, h, 44, "navy", "BEST HOP FROM HERE")
+        self.box(y, 2, h, 48, "navy", "BEST HOPS  (net after fuel)")
         if not routes:
-            self.put(y + 2, 4, "Nothing worth carrying. Try elsewhere.", self.C("faint"))
+            self.put(y + 2, 4, "Nothing worth carrying. Try elsewhere.",
+                     self.C("faint"))
             return
-        for i, (score, sysm, good, margin, tonnes) in enumerate(routes[:3]):
+        for i, row in enumerate(routes[:3]):
+            net, sysm, good, margin, tonnes, fuel, danger = row
             d = galaxy.distance(state.system, sysm)
-            line = (f"{sysm.name[:10]:<10} {d:4.1f} LY {good.name[:9]:<9}"
-                    f" {tonnes:2d}t {score:+5.0f}")
-            self.put(y + 1 + i, 4, V.cut(line, 40), self.C("green" if i == 0 else "white"))
+            risk = "low" if danger < 0.33 else ("med" if danger < 0.66 else "high")
+            line = (f"{sysm.name[:10]:<10}{d:5.1f}LY {good.name[:10]:<10}"
+                    f"{tonnes:3d}t {net:+6.0f} {risk}")
+            self.put(y + 1 + i, 4, V.cut(line, 44),
+                     self.C("green" if i == 0 else "white"))
 
     def draw_station_panel(self):
         state = self.state
@@ -831,32 +866,32 @@ class Game:
     def do_buy(self):
         self.market_sel = 0
         self.qty = 1
-        self.screen = "buy"
+        self.push("buy")
 
     def do_sell(self):
         self.market_sel = 0
         self.qty = 1
-        self.screen = "sell"
+        self.push("sell")
 
     def do_equip(self):
         self.equip_sel = 0
-        self.screen = "equip"
+        self.push("equip")
 
     def do_status(self):
-        self.screen = "status"
+        self.push("status")
 
     def do_inventory(self):
-        self.screen = "inventory"
+        self.push("inventory")
 
     def do_refuel(self):
         ok, msg = st.refuel(self.state.pilot)
         self.toast_now(msg if ok else msg, 2.0)
 
     def do_repair(self):
-        damage = 100.0 - max(0.0, self.state.hull)
+        damage = self.state.hull_max - max(0.0, self.state.hull)
         ok, msg = st.repair(self.state.pilot, damage)
         if ok:
-            self.state.hull = 100.0
+            self.state.hull = self.state.hull_max
         self.toast_now(msg, 2.0)
 
     def do_fine(self):
@@ -884,7 +919,7 @@ class Game:
         combat.spawn(state)
         self.target_speed = 0.0
         self.axes = {"pitch": 0.0, "roll": 0.0}
-        self.screen = "flight"
+        self.go("flight")
 
     def do_save(self):
         self.state.pilot.system = self.state.system.index
@@ -894,21 +929,43 @@ class Game:
         self.profile.best_rank = self.state.pilot.rank
         save_profile(self.profile)
         self.toast_now("Progress saved", 1.6)
-        self.screen = "title"
+        self.go("title")
         self.has_save = True
         self.state = None
 
     # -- market -----------------------------------------------------------
     def market_rows(self, mode):
-        market = self.state.market
+        """(key, name, unit price, stock or held, reserved, profit) rows."""
+        state = self.state
+        market = state.market
         if mode == "buy":
-            return [(k, n, pr, stk) for k, n, pr, stk in market.rows("buy")]
+            return [(k, n, pr, stk, 0, 0.0) for k, n, pr, stk in market.rows("buy")]
         rows = []
-        for key, qty in self.state.pilot.cargo.items():
+        for key, qty in state.pilot.cargo.items():
             good = GOOD_BY_KEY[key]
-            rows.append((key, good.name, market.listings[key].sell_price(), qty))
+            held = qty
+            reserved = state.pilot.reserved.get(key, 0)
+            basis = state.pilot.costs.get(key, 0.0)
+            unit_cost = basis / held if held else 0.0
+            unit = market.listings[key].sell_price()
+            rows.append((key, good.name, unit, held, reserved,
+                         round(unit - unit_cost, 2)))
         rows.sort(key=lambda r: r[0])
         return rows
+
+    def market_quote(self, mode, key=None):
+        state = self.state
+        rows = self.market_rows(mode)
+        if not rows:
+            return None
+        if key is None:
+            key = rows[min(self.market_sel, len(rows) - 1)][0]
+        if mode == "buy":
+            return state.market.quote_buy(key, self.qty, state.pilot.credits,
+                                          state.pilot.cargo_free())
+        return state.market.quote_sell(key, self.qty,
+                                       state.pilot.cargo.get(key, 0),
+                                       state.pilot.reserved.get(key, 0))
 
     def draw_market(self, mode):
         state = self.state
@@ -919,17 +976,25 @@ class Game:
         self.put(2, 22, f"CR {V.money(state.pilot.credits)}", self.C("gold"))
         self.put(2, 42, f"HOLD {state.pilot.cargo_used()}/{state.pilot.cargo_cap} t",
                  self.C("cyan"))
+        if state.pilot.trade_profit:
+            self.put(2, 62, f"PROFIT {state.pilot.trade_profit:+.0f}",
+                     self.C("green" if state.pilot.trade_profit >= 0 else "red"))
         self.put(3, 2, "GOOD", self.C("dim"))
         self.put(3, 24, "PRICE", self.C("dim"))
         self.put(3, 33, "STOCK" if mode == "buy" else "IN HOLD", self.C("dim"))
-        self.put(3, 48, "PROFIT" if mode == "sell" else "", self.C("dim"))
+        self.put(3, 44, "EVENT" if mode == "buy" else "PROFIT/t", self.C("dim"))
         rows = self.market_rows(mode)
-        self.market_sel = max(0, min(self.market_sel, max(0, len(rows) - 1)))
-        top = 0
-        visible = max(4, self.h - 9)
-        if self.market_sel >= visible:
-            top = self.market_sel - visible + 1
-        for i, (key, name, price, count) in enumerate(rows[top:top + visible]):
+        if not rows:
+            self.put(5, 3, "Nothing in the hold." if mode == "sell" else "No stock.",
+                     self.C("faint"))
+            self.put(self.h - 2, 2, "ESC back", self.C("dim"))
+            return
+        self.market_sel = max(0, min(self.market_sel, len(rows) - 1))
+        visible = max(4, self.h - 10)
+        top = max(0, self.market_sel - visible + 1)
+        events = state.market.events if hasattr(state.market, "events") else []
+        for i, row in enumerate(rows[top:top + visible]):
+            key, name, price, count = row[0], row[1], row[2], row[3]
             idx = i + top
             y = 4 + i
             selected = idx == self.market_sel
@@ -939,34 +1004,44 @@ class Game:
             self.put(y, 24, f"{price:8.1f}", self.C(colour) if not selected else attr)
             self.put(y, 34, f"{count:5d}", self.C("cyan") if not selected else attr)
             if mode == "sell":
-                profit = price - GOOD_BY_KEY[key].base
-                self.put(y, 48, f"{profit:+6.1f}",
+                profit = row[5]
+                self.put(y, 44, f"{profit:+6.1f}",
                          self.C("green" if profit >= 0 else "red"))
-        if not rows:
-            self.put(5, 3, "Nothing in the hold." if mode == "sell" else "No stock.",
-                     self.C("faint"))
+            else:
+                flag = [ev.short for ev in events if key in ev.goods]
+                if flag:
+                    self.put(y, 44, V.cut(flag[0], 8), self.C("amber"))
         self.draw_market_side(rows, mode)
-        self.put(self.h - 2, 2, "Up/Down pick   Left/Right qty   ENTER trade   ESC back",
+        self.put(self.h - 2, 2,
+                 "Up/Down pick   Left/Right qty   +/- step   M max   ENTER trade   ESC back",
                  self.C("dim"))
 
     def draw_market_side(self, rows, mode):
-        pw = 26
+        pw = 28
         px = self.w - pw - 2
         py = 3
-        ph = 11
+        ph = 13
         self.box(py, px, ph, pw, "navy", "TRADE")
         if not rows:
             return
-        key, name, price, count = rows[self.market_sel]
+        key, name, price, count = rows[self.market_sel][0:4]
         good = GOOD_BY_KEY[key]
+        quote = self.market_quote(mode, key)
         lines = [(good.name, "gold"),
-                 (f"base {good.base:.1f} CR/t", "dim"),
                  ("illegal" if good.illegal else "legal cargo",
                   "red" if good.illegal else "green"),
                  ("", None),
-                 (f"QUANTITY {self.qty}", "white"),
-                 (f"COST {price * self.qty:.1f} CR", "gold"),
-                 ("", None)]
+                 (f"want {self.qty} t", "white")]
+        if quote is not None:
+            verb = "PAY" if mode == "buy" else "GET"
+            lines.append((f"{verb} {quote.total:.1f} CR", "gold"))
+            lines.append((f"for {quote.qty} t @ {quote.unit:.1f}", "dim"))
+            if quote.qty < self.qty:
+                lines.append((quote.why(good.name), "amber"))
+        else:
+            lines.append(("nothing to trade", "faint"))
+        lines.append(("", None))
+        lines.append(("M = " + ("buy max" if mode == "buy" else "sell all"), "cyan"))
         y = py + 1
         for text, colour in lines:
             if text:
@@ -974,12 +1049,28 @@ class Game:
                          self.C(colour) if colour else 0)
             y += 1
 
-    def key_market(self, key, mode):
+    def market_trade(self, mode, qty=None):
         state = self.state
         rows = self.market_rows(mode)
         if not rows:
-            if mode == "sell":
-                self.screen = "docked"
+            return
+        key = rows[min(self.market_sel, len(rows) - 1)][0]
+        if qty is None:
+            qty = self.qty
+        if mode == "buy":
+            ok, msg = state.market.buy(state.pilot, key, qty)
+        else:
+            ok, msg = state.market.sell(state.pilot, key, qty)
+        self.toast_now(msg, 2.0)
+        if ok:
+            self.qty = 1
+            self.state.save_after_trade()
+
+    def key_market(self, key, mode):
+        rows = self.market_rows(mode)
+        if not rows:
+            if key in ("esc", "q"):
+                self.back()
             return
         self.market_sel = max(0, min(self.market_sel, len(rows) - 1))
         if key in ("up", "w", "k"):
@@ -989,18 +1080,24 @@ class Game:
         elif key in ("left", "a", "-"):
             self.qty = max(1, self.qty - 1)
         elif key in ("right", "d", "+", "="):
-            self.qty = min(99, self.qty + 1)
-        elif key in ("enter", " "):
+            self.qty = min(999, self.qty + 1)
+        elif key == "]":
+            self.qty = min(999, self.qty + 10)
+        elif key == "[":
+            self.qty = max(1, self.qty - 10)
+        elif key == "m":
             good_key = rows[self.market_sel][0]
             if mode == "buy":
-                ok, msg = state.market.buy(state.pilot, good_key, self.qty)
+                quote = self.state.market.quote_buy_max(
+                    good_key, self.state.pilot.credits,
+                    self.state.pilot.cargo_free())
+                self.market_trade("buy", max(1, quote.qty))
             else:
-                ok, msg = state.market.sell(state.pilot, good_key, self.qty)
-            self.toast_now(msg, 1.8)
-            if ok:
-                self.qty = 1
+                self.market_trade("sell", self.state.pilot.cargo.get(good_key, 0))
+        elif key in ("enter", " "):
+            self.market_trade(mode)
         elif key in ("esc", "q"):
-            self.screen = "docked"
+            self.back()
 
     def draw_buy(self):
         self.draw_market("buy")
@@ -1044,7 +1141,7 @@ class Game:
         rows = st.equipment_rows(self.state.pilot, self.state.system.tech)
         if not rows:
             if key in ("esc", "q"):
-                self.screen = "docked"
+                self.back()
             return
         if key in ("up", "w", "k"):
             self.equip_sel = max(0, self.equip_sel - 1)
@@ -1055,7 +1152,7 @@ class Game:
                              self.state.system.tech)
             self.toast_now(msg, 1.8)
         elif key in ("esc", "q"):
-            self.screen = "docked"
+            self.back()
 
     # -- status / inventory -----------------------------------------------
     def draw_status(self):
@@ -1094,7 +1191,7 @@ class Game:
 
     def key_status(self, key):
         if key in ("esc", "q", "enter"):
-            self.screen = "docked" if self.state.mode == "docked" else "flight"
+            self.back()
 
     def draw_inventory(self):
         state = self.state
@@ -1114,7 +1211,7 @@ class Game:
 
     def key_inventory(self, key):
         if key in ("esc", "q", "enter"):
-            self.screen = "docked" if self.state.mode == "docked" else "flight"
+            self.back()
 
     # -- help / pause / death ---------------------------------------------
     def draw_help(self):
@@ -1171,14 +1268,15 @@ class Game:
 
     def key_help(self, key):
         if key in ("esc", "q", "enter", "?"):
-            self.screen = self.help_from
+            self.back()
 
     PAUSE_ITEMS = ("Resume", "Controls", "Quit to title", "Quit game")
 
     def draw_pause(self):
-        if self.state is not None:
-            self.header()
-            self.draw_flight()
+        under = self.parent
+        painter = getattr(self, "draw_" + under, None)
+        if painter is not None and under != "pause":
+            painter()
         else:
             self.draw_title()
         w, h = 32, 9
@@ -1199,17 +1297,14 @@ class Game:
         elif key in ("enter", " "):
             item = self.PAUSE_ITEMS[self.pause_sel]
             if item == "Resume":
-                self.screen = self.help_from
+                self.back()
             elif item == "Controls":
-                self.help_from = self.screen
-                self.screen = "help"
+                self.push("help")
             elif item == "Quit to title":
-                self.screen = "title"
+                self.go("title")
                 self.state = None
             else:
                 self.screen = "quit"
-        elif key == "esc":
-            self.screen = self.help_from
 
     def draw_dead(self):
         self.put(0, 1, "CORIOLIS", self.C("red", True))
@@ -1229,7 +1324,7 @@ class Game:
         if key in ("enter", " ", "q", "esc"):
             self.state = None
             self.has_save = False
-            self.screen = "title"
+            self.go("title")
             self.menu = 0
 
 

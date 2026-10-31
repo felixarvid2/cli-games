@@ -12,6 +12,9 @@ class FakePilot:
     def __init__(self, credits=START_CREDITS, capacity=CARGO_BASE):
         self.credits = credits
         self.cargo = {}
+        self.costs = {}
+        self.reserved = {}
+        self.trade_profit = 0.0
         self.cargo_cap = capacity
 
     def cargo_used(self):
@@ -24,11 +27,32 @@ class FakePilot:
         self.cargo[key] = self.cargo.get(key, 0) + qty
 
     def remove_cargo(self, key, qty):
-        left = self.cargo.get(key, 0) - qty
+        have = self.cargo.get(key, 0)
+        qty = min(qty, have)
+        basis = self.cost_basis(key, qty)
+        left = have - qty
         if left > 0:
             self.cargo[key] = left
         else:
             self.cargo.pop(key, None)
+            self.costs.pop(key, None)
+        return basis
+
+    def add_cost(self, key, amount):
+        self.costs[key] = round(self.costs.get(key, 0.0) + amount, 2)
+
+    def cost_basis(self, key, qty):
+        have = self.cargo.get(key, 0)
+        total = self.costs.get(key, 0.0)
+        if have <= 0 or total <= 0 or qty <= 0:
+            return 0.0
+        basis = round(total * min(qty, have) / have, 2)
+        left = round(total - basis, 2)
+        if left > 0:
+            self.costs[key] = left
+        else:
+            self.costs.pop(key, None)
+        return basis
 
 
 class MarketTest(unittest.TestCase):
@@ -115,10 +139,70 @@ class MarketTest(unittest.TestCase):
         pilot = FakePilot(credits=100.0)
         routes = best_routes(self.lave, galaxy.galaxy(1), pilot)
         self.assertTrue(routes)
-        for score, system, good, margin, tonnes in routes:
+        for net, system, good, margin, tonnes, fuel, danger in routes:
+            self.assertGreater(tonnes, 0)
             self.assertLessEqual(tonnes, pilot.cargo_free())
-            self.assertLessEqual(tonnes * margin, pilot.credits + 1e-6)
+            self.assertGreater(net, 0)
+            self.assertGreaterEqual(fuel, 0)
+            self.assertTrue(0.0 <= danger <= 1.0)
         self.assertEqual(routes[0][0], max(r[0] for r in routes))
+
+    def test_quote_matches_what_is_charged(self):
+        pilot = FakePilot(credits=500.0, capacity=40)
+        quote = self.market.quote_buy("food", 20, pilot.credits, pilot.cargo_free())
+        before = pilot.credits
+        ok, _ = self.market.buy(pilot, "food", 20)
+        self.assertTrue(ok)
+        self.assertAlmostEqual(before - pilot.credits, quote.total, places=1)
+        self.assertEqual(pilot.cargo["food"], quote.qty)
+        self.assertAlmostEqual(self.market.listings["food"].bought, quote.qty)
+
+    def test_bulk_price_impact_is_counted_once(self):
+        pilot = FakePilot(credits=5000.0, capacity=80)
+        quote = self.market.quote_buy("food", 20, pilot.credits, pilot.cargo_free())
+        self.market.buy(pilot, "food", 20)
+        self.assertAlmostEqual(self.market.listings["food"].bought, quote.qty)
+        # A second batch must start where the first stopped, not twice as far.
+        second = self.market.quote_buy("food", 20, pilot.credits, pilot.cargo_free())
+        self.assertGreater(second.unit, quote.unit)
+        self.assertLess(second.unit, quote.unit * 1.25)
+
+    def test_quote_respects_stock_credits_and_hold(self):
+        self.assertEqual(self.market.quote_buy("narcotics", 5, 1000.0, 20).qty, 0)
+        self.assertEqual(self.market.quote_buy("food", 5, 0.0, 20).qty, 0)
+        self.assertEqual(self.market.quote_buy("food", 5, 1000.0, 0).qty, 0)
+        stock = self.market.stock("food")
+        self.assertLessEqual(self.market.quote_buy("food", 999, 10000.0, 999).qty, stock)
+
+    def test_buy_maximum_fills_the_hold_and_the_wallet(self):
+        pilot = FakePilot(credits=40.0, capacity=20)
+        quote = self.market.quote_buy_max("food", pilot.credits, pilot.cargo_free())
+        self.assertTrue(quote.ok())
+        ok, _ = self.market.buy(pilot, "food", quote.qty)
+        self.assertTrue(ok)
+        self.assertLessEqual(pilot.credits, 40.0)
+        self.assertGreaterEqual(pilot.credits, 0.0)
+        self.assertEqual(pilot.cargo["food"], quote.qty)
+
+    def test_sell_quote_matches_the_payment_and_skips_reserved_cargo(self):
+        pilot = FakePilot(credits=100.0)
+        pilot.add_cargo("food", 6)
+        pilot.reserved["food"] = 4
+        quote = self.market.quote_sell("food", 99, pilot.cargo["food"],
+                                       pilot.reserved["food"])
+        self.assertEqual(quote.qty, 2)
+        before = pilot.credits
+        ok, _ = self.market.sell(pilot, "food", 99)
+        self.assertTrue(ok)
+        self.assertAlmostEqual(pilot.credits - before, quote.total, places=1)
+        self.assertEqual(pilot.cargo["food"], 4)
+
+    def test_money_is_rounded_to_one_decimal(self):
+        pilot = FakePilot(credits=100.0)
+        self.market.buy(pilot, "food", 3)
+        self.assertEqual(round(pilot.credits, 1), pilot.credits)
+        self.market.sell(pilot, "food", 3)
+        self.assertEqual(round(pilot.credits, 1), pilot.credits)
 
     def test_rows_are_in_goods_order(self):
         self.assertEqual([r[0] for r in self.market.rows()], [g.key for g in GOODS])

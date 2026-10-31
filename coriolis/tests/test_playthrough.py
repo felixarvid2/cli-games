@@ -30,7 +30,7 @@ class PlaythroughTest(unittest.TestCase):
         start = state.pilot.credits
         routes = best_routes(state.system, galaxy.galaxy(1), state.pilot)
         self.assertTrue(routes)
-        score, target, good, margin, tonnes = routes[0]
+        net, target, good, margin, tonnes, fuel, danger = routes[0]
         self.assertGreater(tonnes, 0)
         ok, msg = state.market.buy(state.pilot, good.key, tonnes)
         self.assertTrue(ok, msg)

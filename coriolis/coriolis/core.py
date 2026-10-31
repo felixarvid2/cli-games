@@ -6,7 +6,8 @@ import random
 from dataclasses import dataclass, field
 
 from . import galaxy
-from .data import CARGO_BASE, MAX_FUEL, START_CREDITS, legal_for, rank_for
+from .data import MAX_FUEL, START_CREDITS, legal_for, rank_for
+from .ships import LARGE_BAY_BONUS, PLAYER_SHIPS, player_ship
 from .flight import FlightModel, Vec3
 from .market import Market
 from .station import Station
@@ -30,7 +31,6 @@ class Pilot:
     credits: float = START_CREDITS
     fuel: float = MAX_FUEL
     cargo: dict = field(default_factory=dict)
-    cargo_cap: int = CARGO_BASE
     equipment: set = field(default_factory=set)
     missiles: int = 3
     kills: int = 0
@@ -40,13 +40,58 @@ class Pilot:
     badges: list = field(default_factory=list)
     deaths: int = 0
     jumps: int = 0
+    ship: str = "cobra"
+    costs: dict = field(default_factory=dict)       # cost basis per good
+    reserved: dict = field(default_factory=dict)    # mission cargo, not sellable
+    trade_profit: float = 0.0
+    missions: list = field(default_factory=list)    # mission state (see missions.py)
+    visited: list = field(default_factory=list)     # "galaxy:index" keys
+    tutorial: dict = field(default_factory=dict)
+    intel: dict = field(default_factory=dict)       # fines, scans, reputation
 
-    # -- cargo ----------------------------------------------------------
+    # -- hull ------------------------------------------------------------
+    @property
+    def ship_cfg(self):
+        return player_ship(self.ship)
+
+    @property
+    def ship_name(self):
+        return self.ship_cfg.name
+
+    @property
+    def hull_max(self):
+        return self.ship_cfg.hull
+
+    @property
+    def shield_max(self):
+        return self.ship_cfg.shields
+
+    @property
+    def max_missiles(self):
+        return self.ship_cfg.missiles
+
+    @property
+    def slots(self):
+        return self.ship_cfg.slots
+
+    @property
+    def cargo_cap(self):
+        bonus = LARGE_BAY_BONUS if "largebay" in self.equipment else 0
+        return self.ship_cfg.cargo + bonus
+
+    # -- cargo -----------------------------------------------------------
     def cargo_used(self):
         return sum(self.cargo.values())
 
     def cargo_free(self):
         return max(0, self.cargo_cap - self.cargo_used())
+
+    def sellable(self, key=None):
+        """Tonnes that are not reserved for a mission."""
+        if key is None:
+            return sum(max(0, q - self.reserved.get(k, 0))
+                       for k, q in self.cargo.items())
+        return max(0, self.cargo.get(key, 0) - self.reserved.get(key, 0))
 
     def add_cargo(self, key, qty):
         if qty <= 0:
@@ -54,11 +99,56 @@ class Pilot:
         self.cargo[key] = self.cargo.get(key, 0) + int(qty)
 
     def remove_cargo(self, key, qty):
-        left = self.cargo.get(key, 0) - int(qty)
+        """Take cargo out of the hold, returning the cost basis removed."""
+        qty = int(qty)
+        have = self.cargo.get(key, 0)
+        if qty <= 0 or have <= 0:
+            return 0.0
+        qty = min(qty, have)
+        basis = self.cost_basis(key, qty)
+        left = have - qty
         if left > 0:
             self.cargo[key] = left
         else:
             self.cargo.pop(key, None)
+            self.costs.pop(key, None)
+        held = self.reserved.get(key, 0)
+        if held:
+            if held - qty > 0:
+                self.reserved[key] = held - qty
+            else:
+                self.reserved.pop(key, None)
+        return basis
+
+    # -- cost basis ------------------------------------------------------
+    def add_cost(self, key, amount):
+        self.costs[key] = round(self.costs.get(key, 0.0) + amount, 2)
+
+    def cost_basis(self, key, qty):
+        """Cost of `qty` tonnes at the average price paid for the holding."""
+        have = self.cargo.get(key, 0)
+        total = self.costs.get(key, 0.0)
+        if have <= 0 or total <= 0 or qty <= 0:
+            return 0.0
+        qty = min(qty, have)
+        basis = round(total * qty / have, 2)
+        left = round(total - basis, 2)
+        if left > 0:
+            self.costs[key] = left
+        else:
+            self.costs.pop(key, None)
+        return basis
+
+    def reserve(self, key, qty):
+        if qty > 0:
+            self.reserved[key] = self.reserved.get(key, 0) + int(qty)
+
+    def release(self, key, qty):
+        left = self.reserved.get(key, 0) - int(qty)
+        if left > 0:
+            self.reserved[key] = left
+        else:
+            self.reserved.pop(key, None)
 
     # -- derived ---------------------------------------------------------
     @property
@@ -80,25 +170,51 @@ class Pilot:
     def has(self, key):
         return key in self.equipment
 
+    def visit(self, galaxy_no, index):
+        """Record a new system; returns True the first time it is seen."""
+        key = f"{galaxy_no}:{index}"
+        if key in self.visited:
+            return False
+        self.visited.append(key)
+        return True
+
+    # -- persistence -----------------------------------------------------
     def to_dict(self):
         return {"name": self.name, "credits": self.credits, "fuel": self.fuel,
-                "cargo": self.cargo, "cargo_cap": self.cargo_cap,
-                "equipment": sorted(self.equipment), "missiles": self.missiles,
-                "kills": self.kills, "legal": self.legal,
-                "galaxy": self.galaxy, "system": self.system,
-                "badges": self.badges, "deaths": self.deaths,
-                "jumps": self.jumps}
+                "cargo": self.cargo, "equipment": sorted(self.equipment),
+                "missiles": self.missiles, "kills": self.kills,
+                "legal": self.legal, "galaxy": self.galaxy,
+                "system": self.system, "badges": self.badges,
+                "deaths": self.deaths, "jumps": self.jumps,
+                "ship": self.ship, "costs": self.costs,
+                "reserved": self.reserved, "trade_profit": self.trade_profit,
+                "missions": self.missions, "visited": self.visited,
+                "tutorial": self.tutorial, "intel": self.intel}
 
     @classmethod
     def from_dict(cls, data):
         p = cls()
-        for key in ("name", "credits", "fuel", "cargo_cap", "missiles",
-                    "kills", "legal", "galaxy", "system", "deaths", "jumps"):
+        for key in ("name", "credits", "fuel", "missiles", "kills", "legal",
+                    "galaxy", "system", "deaths", "jumps", "ship",
+                    "trade_profit"):
             if key in data:
                 setattr(p, key, data[key])
+        if p.ship not in PLAYER_SHIPS:
+            p.ship = "cobra"
         p.cargo = {k: int(v) for k, v in (data.get("cargo") or {}).items() if v}
         p.equipment = set(data.get("equipment") or [])
         p.badges = list(data.get("badges") or [])
+        p.costs = {k: float(v) for k, v in (data.get("costs") or {}).items()}
+        p.reserved = {k: int(v) for k, v in (data.get("reserved") or {}).items() if v}
+        p.missions = list(data.get("missions") or [])
+        p.visited = list(data.get("visited") or [])
+        p.tutorial = dict(data.get("tutorial") or {})
+        p.intel = dict(data.get("intel") or {})
+        # A version-1 save has no ship: it was always the Cobra.
+        if "ship" not in data:
+            p.ship = "cobra"
+        if not p.costs and p.cargo:
+            p.costs = {}
         return p
 
 
@@ -131,7 +247,7 @@ class GameState:
         self.rng = random.Random(seed)
         self.seed = seed
         self.pilot = Pilot()
-        self.flight = FlightModel()
+        self.flight = FlightModel().apply_ship(self.pilot.ship_cfg)
         self.station = Station(Vec3(0.0, 0.0, 0.0))
         self.sun = Vec3(60000.0, 24000.0, -42000.0)
         self.planet = Vec3(-70000.0, -18000.0, -90000.0)
@@ -143,8 +259,9 @@ class GameState:
         self.jump = None
         self.time = 0.0
         self.last_shot = 0.0
-        self.hull = HULL
-        self.shields = {"fore": MAX_SHIELD, "aft": MAX_SHIELD}
+        self.hull = self.pilot.hull_max
+        self.shields = {"fore": self.pilot.shield_max,
+                        "aft": self.pilot.shield_max}
         self.banks = [BANK] * 4
         self.cool = 0.0
         self.missile_target = None
@@ -155,6 +272,14 @@ class GameState:
     @property
     def system(self):
         return galaxy.system(self.pilot.galaxy, self.pilot.system)
+
+    @property
+    def hull_max(self):
+        return self.pilot.hull_max
+
+    @property
+    def shield_max(self):
+        return self.pilot.shield_max
 
     @property
     def seed_value(self):
@@ -173,7 +298,8 @@ class GameState:
     def launch(self):
         """Leave the station, nose pointing at it from six kilometres out."""
         self.station.pos = Vec3(0.0, 0.0, 0.0)
-        self.flight = FlightModel(pos=Vec3(0.0, 0.0, -6000.0))
+        self.flight = FlightModel(pos=Vec3(0.0, 0.0, -6000.0)).apply_ship(
+            self.pilot.ship_cfg)
         self.docked_at = None
         self.mode = "flight"
         self.hull = max(self.hull, 1.0)
@@ -226,7 +352,8 @@ class GameState:
         self.pilot.system = index
         self.pilot.jumps += 1
         self.market = Market.for_system(self.system)
-        self.flight = FlightModel(pos=Vec3(0.0, 0.0, -24000.0))
+        self.flight = FlightModel(pos=Vec3(0.0, 0.0, -24000.0)).apply_ship(
+            self.pilot.ship_cfg)
         self.contacts = []
         self.jump = None
         self.say(f"Arrived at {self.system.name}. Station bearing 000.")
@@ -244,11 +371,23 @@ class GameState:
     def save(self, path=SAVE_PATH):
         write_json(path, self.to_dict())
 
+    def save_after_trade(self):
+        """Keep the on-disk save in step after a station transaction."""
+        if self.mode != "docked":
+            return False
+        self.pilot.system = self.system.index
+        try:
+            self.save()
+        except OSError:
+            return False
+        return True
+
     @classmethod
     def from_dict(cls, data):
         state = cls(data.get("seed"))
         state.pilot = Pilot.from_dict(data.get("pilot") or {})
-        state.flight = FlightModel.from_dict(data.get("flight"))
+        state.flight = FlightModel.from_dict(data.get("flight")).apply_ship(
+            state.pilot.ship_cfg)
         state.hull = float(data.get("hull", HULL))
         shields = data.get("shields") or {}
         state.shields = {"fore": float(shields.get("fore", MAX_SHIELD)),

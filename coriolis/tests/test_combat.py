@@ -117,6 +117,54 @@ class CombatTest(unittest.TestCase):
             self.assertTrue(0 <= c.energy)
         self.assertGreaterEqual(self.state.hull, 0)
 
+    def test_npcs_can_turn_to_targets_anywhere_around_them(self):
+        import math
+        for bearing in (0, 45, 90, 135, 180, -90, -135):
+            for elevation in (-40, 0, 40):
+                c = combat.make("ship", "cobra", Vec3(0, 0, 0))
+                r, e = math.radians(bearing), math.radians(elevation)
+                target = Vec3(math.sin(r) * math.cos(e), math.sin(e),
+                              math.cos(r) * math.cos(e)) * 1500
+                for _ in range(300):
+                    combat._steer(c, target, 1 / 60, 1.4)
+                err = math.degrees(c.orient.forward.angle_to(target))
+                self.assertLess(err, 5, f"bearing {bearing} elevation {elevation}")
+
+    def test_steering_is_bounded_by_the_turn_rate(self):
+        import math
+        c = combat.make("ship", "cobra", Vec3(0, 0, 0))
+        start = c.orient.forward
+        combat._steer(c, Vec3(0, 0, -1500), 1 / 60, 1.0)   # dead astern
+        turned = math.degrees(start.angle_to(c.orient.forward))
+        self.assertLessEqual(turned, math.degrees(1.0 / 60) + 0.01)
+
+    def test_steering_uses_simulation_time(self):
+        c1 = combat.make("ship", "cobra", Vec3(0, 0, 0))
+        c2 = combat.make("ship", "cobra", Vec3(0, 0, 0))
+        for _ in range(60):
+            combat._steer(c1, Vec3(0, 800, 800), 1 / 60, 1.0)
+        combat._steer(c2, Vec3(0, 800, 800), 1.0, 1.0)
+        self.assertGreater(c1.orient.forward.y, c2.orient.forward.y)
+
+    def test_player_missile_homes_and_hits(self):
+        target = combat.make("ship", "sidewinder", Vec3(0, 0, 1200), hostile=True)
+        self.state.contacts = [target]
+        combat.lock_target(self.state)
+        self.assertTrue(combat.fire_missile(self.state))
+        for _ in range(600):
+            combat.step(self.state, 1 / 60)
+            if target not in self.state.contacts:
+                break
+        self.assertNotIn(target, self.state.contacts)
+
+    def test_ecm_stops_an_incoming_missile(self):
+        self.state.pilot.equipment.add("ecm")
+        missile = combat.make("missile", "missile",
+                              self.state.flight.pos + Vec3(0, 0, 900))
+        self.state.contacts = [missile]
+        self.assertTrue(combat.ecm(self.state))
+        self.assertEqual(self.state.contacts, [])
+
     def test_spawn_respects_lawless_space(self):
         pirates = 0
         for seed in range(40):

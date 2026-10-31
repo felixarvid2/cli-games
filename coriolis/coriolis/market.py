@@ -1,25 +1,31 @@
 """Per-system commodity market.
 
 Prices come from the system's economy: goods the system produces are cheap,
-goods it needs are dear. There is a bid/ask spread, and your own trading
-moves the price against you in both directions - so no station can be
-farmed by buying and selling the same crate back.
+goods it needs are dear. There is a bid/ask spread, and your own trading moves
+the price against you in both directions - so no station can be farmed by
+buying and selling the same crate back.
+
+All pricing goes through `quote_buy` / `quote_sell`, which are pure functions
+of the numbers involved (no pilot, no mutation). The UI, the route advice and
+the transaction itself all use the same quote, so what is quoted is exactly
+what is charged.
 """
 
 import zlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .data import GOODS
 
 BASE_STOCK = 40
 SPREAD = 0.05      # dealer's cut, each way
 IMPACT = 0.008     # price movement per unit you trade this visit
+MONEY = 0.1        # the smallest unit of currency the game deals in
 
 
 @dataclass
 class Listing:
     good: object
-    price: float          # equilibrium price per tonne
+    price: float          # equilibrium price per tonne, before events
     stock: int
     initial: int
     bought: int = 0
@@ -35,10 +41,31 @@ class Listing:
                          * (1 - IMPACT * (self.sold + extra))), 2)
 
 
+@dataclass(frozen=True)
+class Quote:
+    """The exact result of a prospective trade."""
+
+    key: str
+    qty: int             # tonnes that can actually be traded
+    total: float         # exact credits, rounded to one decimal
+    unit: float          # average price per tonne
+    limited_by: str = ""  # '', 'stock', 'credits', 'cargo', 'holdings'
+
+    def ok(self):
+        return self.qty > 0
+
+    def why(self, good_name="cargo"):
+        return {"stock": "No stock",
+                "credits": "Not enough credits",
+                "cargo": "Cargo hold full",
+                "holdings": f"You have no {good_name}"}.get(self.limited_by, "Nothing to trade")
+
+
 class Market:
     def __init__(self, system):
         self.system = system
         self.listings = {g.key: self._listing(g) for g in GOODS}
+        self.events = []            # economic events; see set_events()
 
     @classmethod
     def for_system(cls, system):
@@ -60,6 +87,26 @@ class Market:
             stock = 0            # lawful states do not deal in these openly
         return Listing(good, round(price, 2), stock, max(stock, 1))
 
+    # -- events -----------------------------------------------------------
+    def set_events(self, events):
+        """Apply local economic events to the equilibrium prices."""
+        self.events = list(events)
+        for listing in self.listings.values():
+            factor = 1.0
+            for ev in self.events:
+                if listing.good.key in ev.goods:
+                    factor *= ev.factor
+            base = self._base_price(listing.good)
+            listing.price = round(base * factor, 2)
+
+    def _base_price(self, good):
+        """Price with no events applied (recomputed, not accumulated)."""
+        industrial = self.system.industrial
+        score = good.industrial * industrial + (1.0 - good.industrial) * (1.0 - industrial)
+        price = good.base * (1.5 - 0.9 * score)
+        local = zlib.crc32((good.key + self.system.name).encode()) / 0xFFFFFFFF
+        return round(price * (0.94 + local * 0.12), 2)
+
     # -- queries ----------------------------------------------------------
     def price(self, key):
         """Equilibrium value, used for valuation and comparisons."""
@@ -76,67 +123,97 @@ class Market:
             out.append((listing.good.key, listing.good.name, price, listing.stock))
         return out
 
-    # -- trading ----------------------------------------------------------
-    def buy(self, pilot, key, qty=1):
+    # -- quotes (pure) ----------------------------------------------------
+    def quote_buy(self, key, qty, credits, room):
+        """What buying `qty` tonnes would cost. No state changes."""
         listing = self.listings[key]
+        want = max(0, int(qty))
         if listing.stock <= 0:
-            return False, "No stock"
-        room = pilot.cargo_free()
+            return Quote(key, 0, 0.0, 0.0, "stock")
         if room <= 0:
-            return False, "Cargo hold full"
-        qty = min(max(1, int(qty)), listing.stock, room)
-        cost, taken = 0.0, 0
-        for _ in range(qty):
+            return Quote(key, 0, 0.0, 0.0, "cargo")
+        limit = min(want, listing.stock, int(room))
+        total, taken, reason = 0.0, 0, ""
+        while taken < limit:
             price = listing.buy_price(taken)
-            if round(cost + price, 1) > pilot.credits + 1e-9:
+            if round(total + price, 1) > credits + 1e-9:
+                reason = "credits"
                 break
-            cost += price
-            listing.bought += 1
+            total += price
             taken += 1
         if taken == 0:
-            return False, "Not enough credits"
-        listing.stock -= taken
-        pilot.credits = round(pilot.credits - cost, 1)
-        pilot.add_cargo(key, taken)
-        return True, f"Bought {taken}t {listing.good.name} for {cost:.1f} CR"
+            return Quote(key, 0, 0.0, 0.0, reason or "credits")
+        total = round(total, 1)
+        return Quote(key, taken, total, round(total / taken, 2), reason)
+
+    def quote_sell(self, key, qty, held, reserved=0):
+        """What selling `qty` tonnes would pay. No state changes."""
+        listing = self.listings[key]
+        free = max(0, int(held) - max(0, int(reserved)))
+        if free <= 0:
+            return Quote(key, 0, 0.0, 0.0, "holdings")
+        want = min(max(0, int(qty)), free)
+        if want <= 0:
+            return Quote(key, 0, 0.0, 0.0, "holdings")
+        total = sum(listing.sell_price(i) for i in range(want))
+        total = round(total, 1)
+        return Quote(key, want, total, round(total / want, 2))
+
+    def quote_buy_max(self, key, credits, room):
+        """Everything the wallet, the hold and the shelf allow."""
+        listing = self.listings[key]
+        return self.quote_buy(key, listing.stock, credits, room)
+
+    # -- transactions -----------------------------------------------------
+    def buy(self, pilot, key, qty=1):
+        quote = self.quote_buy(key, qty, pilot.credits, pilot.cargo_free())
+        if not quote.ok():
+            return False, quote.why(self.listings[key].good.name)
+        listing = self.listings[key]
+        listing.stock -= quote.qty
+        listing.bought += quote.qty
+        pilot.credits = round(pilot.credits - quote.total, 1)
+        pilot.add_cargo(key, quote.qty)
+        pilot.add_cost(key, quote.total)
+        return True, (f"Bought {quote.qty}t {listing.good.name} "
+                      f"for {quote.total:.1f} CR")
 
     def sell(self, pilot, key, qty=1):
+        held = pilot.cargo.get(key, 0)
+        reserved = pilot.reserved.get(key, 0) if hasattr(pilot, "reserved") else 0
+        quote = self.quote_sell(key, qty, held, reserved)
+        if not quote.ok():
+            name = self.listings[key].good.name
+            if held > reserved and reserved:
+                return False, f"{reserved}t {name} is reserved for a mission"
+            return False, quote.why(name)
         listing = self.listings[key]
-        have = pilot.cargo.get(key, 0)
-        if have <= 0:
-            return False, "You have none"
-        qty = min(max(1, int(qty)), have)
-        earned = 0.0
-        for i in range(qty):
-            earned += listing.sell_price(i)
-            listing.sold += 1
-        listing.stock += qty
-        pilot.credits = round(pilot.credits + earned, 1)
-        pilot.remove_cargo(key, qty)
-        return True, f"Sold {qty}t {listing.good.name} for {earned:.1f} CR"
+        listing.stock += quote.qty
+        listing.sold += quote.qty
+        pilot.credits = round(pilot.credits + quote.total, 1)
+        basis = pilot.remove_cargo(key, quote.qty)
+        profit = round(quote.total - basis, 1)
+        if hasattr(pilot, "trade_profit"):
+            pilot.trade_profit = round(pilot.trade_profit + profit, 1)
+        return True, (f"Sold {quote.qty}t {listing.good.name} for "
+                      f"{quote.total:.1f} CR ({profit:+.1f})")
 
 
-def affordable(listing, credits, room):
-    """How many tonnes the wallet and the hold actually cover, at the real curve."""
-    stock = listing.stock
-    tonnes, cost = 0, 0.0
-    while tonnes < room and tonnes < stock:
-        price = listing.buy_price(tonnes)
-        if round(cost + price, 1) > credits + 1e-9:
-            break
-        cost += price
-        tonnes += 1
-    return tonnes, round(cost, 2)
+def affordable(market, key, credits, room):
+    """(tonnes, exact cost) that a wallet and a hold can actually cover."""
+    quote = market.quote_buy(key, market.stock(key), credits, room)
+    return quote.qty, quote.total
 
 
 def best_routes(system, systems, pilot=None, max_ly=7.0, limit=5):
     """The hops worth making from here.
 
-    With a pilot, routes are ranked by the profit one trip would actually make
-    (margin x tonnes the hold and the wallet allow), not by margin per tonne -
-    otherwise the advice is 53-credit furs the player cannot afford.
-    Returns (profit, system, good, margin_per_tonne, tonnes).
+    With a pilot, routes are ranked by the profit one trip would actually make,
+    using the same quotes as the trade screen (so what is promised is what is
+    charged), and the fuel burned to get there is subtracted from the estimate.
+    Returns (net, system, good, margin_per_tonne, tonnes, fuel_cost, danger).
     """
+    from .data import FUEL_PRICE
     from .galaxy import distance
 
     here = Market.for_system(system)
@@ -144,25 +221,26 @@ def best_routes(system, systems, pilot=None, max_ly=7.0, limit=5):
     for other in systems:
         if other.index == system.index:
             continue
-        d = distance(system, other)
-        if d > max_ly:
+        leg = distance(system, other)
+        if leg > max_ly:
             continue
         there = Market.for_system(other)
         for good in GOODS:
-            listing = here.listings[good.key]
-            if listing.stock <= 0:
+            if here.stock(good.key) <= 0:
                 continue
-            if pilot is None:
-                tonnes = min(listing.stock, BASE_STOCK)
-                cost = sum(listing.buy_price(i) for i in range(tonnes))
-            else:
-                tonnes, cost = affordable(listing, pilot.credits, pilot.cargo_free())
-            if tonnes <= 0:
+            room = 20 if pilot is None else pilot.cargo_free()
+            credits = 5000.0 if pilot is None else pilot.credits
+            buy = here.quote_buy(good.key, room, credits, room)
+            if not buy.ok():
                 continue
-            revenue = sum(there.listings[good.key].sell_price(i) for i in range(tonnes))
-            profit = round(revenue - cost, 1)
-            if profit <= 0:
+            sell = there.quote_sell(good.key, buy.qty, buy.qty)
+            if not sell.ok():
                 continue
-            out.append((profit, other, good, round(profit / tonnes, 2), tonnes))
+            fuel = round(leg * FUEL_PRICE, 1)
+            net = round(sell.total - buy.total - fuel, 1)
+            if net <= 0:
+                continue
+            out.append((net, other, good, round(net / buy.qty, 2), buy.qty,
+                        fuel, round(other.danger, 2)))
     out.sort(key=lambda row: (-row[0], row[4]))
     return out[:limit]

@@ -128,3 +128,54 @@ TRAFFIC = ("shuttle", "transporter")
 
 def default_missile_target():
     return "cobra"
+
+
+@dataclass(frozen=True)
+class PlayerShip:
+    """A hull the commander can own and fly."""
+
+    key: str
+    name: str
+    price: float          # showroom price, credits
+    hull: float
+    shields: float
+    cargo: int            # tonnes before a cargo bay
+    max_speed: float
+    accel: float
+    pitch_rate: float
+    roll_rate: float
+    missiles: int
+    slots: int            # equipment slots
+    repair: float         # repair cost multiplier
+    blurb: str
+
+
+PLAYER_SHIPS = {
+    "cobra": PlayerShip(
+        "cobra", "Cobra Mk III", 3200.0, 100.0, 100.0, 20, 900.0, 700.0,
+        1.15, 2.0, 4, 8, 1.0,
+        "The all-rounder: enough hold, enough guns, enough speed."),
+    "adder": PlayerShip(
+        "adder", "Adder", 5200.0, 110.0, 80.0, 40, 620.0, 420.0,
+        0.95, 1.6, 2, 7, 0.9,
+        "A slow freighter with a cavernous hold. Bring an escort."),
+    "moray": PlayerShip(
+        "moray", "Moray Starboat", 7400.0, 80.0, 95.0, 12, 1150.0, 950.0,
+        1.35, 2.5, 2, 8, 1.1,
+        "A fast courier: run before you fight."),
+    "ferdl": PlayerShip(
+        "ferdl", "Fer-de-Lance", 12500.0, 120.0, 130.0, 16, 1050.0, 880.0,
+        1.3, 2.2, 4, 9, 1.3,
+        "A combat hull with teeth and a small hold."),
+    "asp": PlayerShip(
+        "asp", "Asp Mk II", 15800.0, 105.0, 115.0, 18, 1000.0, 820.0,
+        1.25, 2.1, 3, 10, 1.2,
+        "Long legs and deep tanks for the far side of the chart."),
+}
+SHIP_ORDER = ("cobra", "adder", "moray", "ferdl", "asp")
+TRADE_IN = 0.6          # a used hull is worth 60% of its showroom price
+LARGE_BAY_BONUS = 15
+
+
+def player_ship(key):
+    return PLAYER_SHIPS.get(key, PLAYER_SHIPS["cobra"])

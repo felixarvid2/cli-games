@@ -146,6 +146,15 @@ class FlightModel:
         self.thrust(throttle, dt)
         self.advance(dt)
 
+    def apply_ship(self, cfg):
+        """Fit the model to a hull: speed, thrust and turn rates."""
+        self.max_speed = float(cfg.max_speed)
+        self.accel = float(cfg.accel)
+        self.pitch_rate = float(cfg.pitch_rate)
+        self.roll_rate = float(cfg.roll_rate)
+        self.speed = min(self.speed, self.max_speed)
+        return self
+
     def to_dict(self):
         return {"pos": [self.pos.x, self.pos.y, self.pos.z],
                 "speed": self.speed,

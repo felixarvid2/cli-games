@@ -130,12 +130,12 @@ class FlowTest(unittest.TestCase):
 
     def test_selling_at_the_same_station_is_a_loss(self):
         game, scr = open_game("buy")
-        game.handle(10)
-        game.handle(27)
+        start = game.state.pilot.credits
+        game.handle(10)                      # buy one tonne
+        game.handle(27)                      # back to the station
         support.pick(game, "sell")
-        credits = game.state.pilot.credits
-        game.handle(10)
-        self.assertLess(game.state.pilot.credits, credits)
+        game.handle(10)                      # sell it straight back
+        self.assertLess(game.state.pilot.credits, start)
 
     def test_launch_returns_to_flight(self):
         game, _ = open_game("docked")

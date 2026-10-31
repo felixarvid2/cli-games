@@ -2,8 +2,8 @@
 
 import math
 
-from .data import (CARGO_LARGE, EQUIPMENT, EQUIPMENT_BY_KEY, FUEL_PRICE,
-                   MAX_FUEL, MAX_MISSILES)
+from .data import (EQUIPMENT, EQUIPMENT_BY_KEY, FUEL_PRICE, MAX_FUEL,
+                   MAX_MISSILES)
 from .flight import Vec3
 
 RADIUS = 420.0
@@ -119,7 +119,7 @@ def available(pilot, item, tech):
     if item.key in ("missile",):
         return pilot.missiles < MAX_MISSILES
     if item.key in ("largebay",):
-        return pilot.cargo_cap < CARGO_LARGE
+        return "largebay" not in pilot.equipment
     if item.key in ("beam", "military"):
         tier = pilot.laser
         order = {"pulse": 0, "beam": 1, "military": 2}
@@ -135,9 +135,7 @@ def buy(pilot, key, tech):
         return False, f"{item.name} costs {item.price:.0f} CR"
     pilot.credits = round(pilot.credits - item.price, 1)
     if key == "missile":
-        pilot.missiles = min(MAX_MISSILES, pilot.missiles + 1)
-    elif key == "largebay":
-        pilot.cargo_cap = CARGO_LARGE
+        pilot.missiles = min(pilot.max_missiles, pilot.missiles + 1)
     elif key in ("beam", "military"):
         pilot.equipment.discard("beam")
         pilot.equipment.discard("military")

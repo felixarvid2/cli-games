@@ -145,9 +145,13 @@ def damage_player(state, amount, source_pos=None):
 
 
 def damage_contact(state, c, amount):
+    """Shields first, then the hull: overflow must not be thrown away."""
     c.flash = 0.25
     if c.shields > 0:
-        c.shields = round(max(0.0, c.shields - amount), 1)
+        absorbed = min(c.shields, amount)
+        c.shields = round(c.shields - absorbed, 1)
+        amount -= absorbed
+    if amount <= 0:
         return False
     c.energy = round(max(0.0, c.energy - amount), 1)
     if c.energy > 0:
@@ -283,15 +287,46 @@ def energy_bomb(state):
 # ---------------------------------------------------------------------- AI --
 
 def _steer(c, target, dt, rate):
+    """Turn a ship towards a target using pitch and roll only.
+
+    A pilot rolls first, until the target sits in the pitch plane, and only
+    then pitches onto it; rolling and pitching at the same time just trades one
+    angle for the other and the ship can stall short of the target. A target
+    dead astern becomes a loop rather than an unreachable bearing. Every
+    rotation is bounded by `rate` radians per second of simulated time, so NPCs
+    and missiles turn at their own speed and never snap onto a target.
+    """
     local = c.orient.t() @ (target - c.pos)
-    if local.z <= 1.0:
-        c.orient = (c.orient @ Mat3.rot_z(rate * dt)).renormalise()
+    dist = local.length()
+    if dist < 1e-6 or dt <= 0 or rate <= 0:
         return
-    pitch = math.atan2(local.y, local.z)
-    roll = math.atan2(local.x, local.z)
+    d = local * (1.0 / dist)
     step = rate * dt
-    c.orient = (c.orient @ Mat3.rot_x(-max(-step, min(step, pitch)))
-                @ Mat3.rot_z(max(-step, min(step, -roll)))).renormalise()
+
+    def wrap(a):
+        while a > math.pi:
+            a -= 2 * math.pi
+        while a < -math.pi:
+            a += 2 * math.pi
+        return a
+
+    az_up = 0.0 if math.hypot(d.x, d.y) < 1e-9 else wrap(-math.atan2(d.x, d.y))
+    az_down = wrap(az_up + math.pi)
+    sign = getattr(c, "_steer_sign", 0)
+    if sign == 0:
+        sign = 1 if d.y >= 0 else -1
+    # Prefer the branch that needs the least roll, but require a clear win: a
+    # target near the roll plane would otherwise chatter between the two.
+    if abs(az_up if -sign > 0 else az_down) + 0.35 < abs(az_up if sign > 0 else az_down):
+        sign = -sign
+    c._steer_sign = sign
+    az = az_up if sign > 0 else az_down
+    alpha = math.atan2(math.hypot(d.x, d.y), d.z)
+    if abs(az) > 0.10:
+        c.orient = (c.orient @ Mat3.rot_z(max(-step, min(step, az)))).renormalise()
+    else:
+        c.orient = (c.orient
+                    @ Mat3.rot_x(-sign * max(-step, min(step, alpha)))).renormalise()
 
 
 def _ai_ship(state, c, dt, dist):
@@ -339,7 +374,7 @@ def _missile_step(state, m, dt):
     _steer(m, target.pos, dt, 2.4)
     m.pos = m.pos + m.orient.forward * (m.type.speed * dt)
     if (m.pos - target.pos).length() < 90:
-        damage_contact(state, target, 60)
+        damage_contact(state, target, 85)
         state.contacts.remove(m)
         state.say("Missile hit")
 
@@ -354,10 +389,11 @@ def step(state, dt):
     # Shield and bank regeneration.
     regen = 6.0 * (1.6 if state.pilot.has("energy") else 1.0)
     for side in ("fore", "aft"):
-        if state.shields[side] < 100 and energy_total(state) > 0:
-            want = min(regen * dt, 100 - state.shields[side])
+        if state.shields[side] < state.shield_max and energy_total(state) > 0:
+            want = min(regen * dt, state.shield_max - state.shields[side])
             got = drain(state, want * 0.5)
-            state.shields[side] = round(min(100.0, state.shields[side] + got * 2), 1)
+            state.shields[side] = round(min(state.shield_max,
+                                            state.shields[side] + got * 2), 1)
     # Banks recharge from the engine when nothing is shooting.
     spare = 2.5 * dt * (1.6 if state.pilot.has("energy") else 1.0)
     for i in range(len(state.banks)):
