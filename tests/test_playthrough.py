@@ -56,6 +56,21 @@ class PlaythroughTest(unittest.TestCase):
         self.assertGreater(state.pilot.credits, start)
         self.assertEqual(state.pilot.cargo, {})
 
+    def test_docking_computer_flies_the_slot(self):
+        for angle in (0.0, 0.9, 2.2):
+            game, scr = support.make_game("\n", ["--seed", "1", "--start-docked"])
+            game.state.pilot.equipment.add("docking")
+            game.state.station.angle = angle
+            support.pick(game, "launch")
+            game.state.station.angle = angle
+            for step in range(60 * 90):
+                game.target_speed = 400.0     # the computer overrides this
+                game.step_sim(1 / 60)
+                if game.screen == "docked":
+                    break
+            self.assertEqual(game.screen, "docked", f"angle {angle}")
+            self.assertEqual(game.state.hull, 100.0)
+
     def test_running_out_of_fuel_blocks_the_jump(self):
         state = self.state
         state.pilot.fuel = 0.5

@@ -43,7 +43,7 @@ First playable version.
 
 ### Under the hood
 - Save games in `$XDG_DATA_HOME/coriolis`, atomic writes, versioned format.
-- 127 unit tests covering generation, maths, docking, combat, market, saves and
+- 129 unit tests covering generation, maths, docking, combat, market, saves and
   every screen rendered headlessly.
 - `tools/render.py` (headless screenshots), `tools/screenshot.py` (pty capture),
   `tools/build_zipapp.sh` (single-file build).

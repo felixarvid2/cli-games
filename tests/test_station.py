@@ -59,6 +59,18 @@ class DockingTest(unittest.TestCase):
         self.assertEqual(status, "wait")
         self.assertIn("Roll", text)
 
+    def test_roll_matching_the_slot_allows_docking(self):
+        for angle in (0.0, 0.7, 2.5, 5.9):
+            station = st.Station(Vec3(0, 0, 0), angle=angle)
+            up = station.slot_vector()
+            forward = Vec3(0, 0, 1)
+            right = up.cross(forward)
+            ship = FlightModel(pos=Vec3(0, 0, -120), speed=150)
+            ship.orient = type(ship.orient)(right, up, forward).renormalise()
+            status, text = station.dock_check(ship)
+            self.assertLess(station.roll_error(ship.orient.up), st.DOCK_ROLL)
+            self.assertEqual(status, "dock", f"angle {angle}: {text}")
+
     def test_station_spins(self):
         start = self.station.angle
         self.station.step(1.0)

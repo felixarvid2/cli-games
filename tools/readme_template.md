@@ -128,7 +128,7 @@ sun for free fuel - at the cost of your hull.
 python3 -m unittest discover -s tests -t tests
 ```
 
-127 tests and no third-party runner: galaxy determinism and reachability, the
+129 tests and no third-party runner: galaxy determinism and reachability, the
 mathematics of cameras and matrices, docking tolerances, damage order, market
 arbitrage, save/load and migrations, a full trade run, and every screen
 rendered headlessly at 80x24 and 100x32.

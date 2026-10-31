@@ -256,15 +256,28 @@ class Game:
             self.die()
 
     def auto_dock(self, dt):
-        """The docking computer: fly the slot approach for the pilot."""
+        """The docking computer: line up the mouth, roll with the slot, creep in."""
         state = self.state
         f = state.flight
-        if (f.pos - state.station.pos).length() > 2600:
+        station = state.station
+        if (f.pos - station.pos).length() > 3000:
             return
-        want = Vec3(0.0, 0.0, -230.0)
-        f.pos = f.pos + (want - f.pos) * min(1.0, 1.2 * dt)
-        combat._steer(f, Vec3(0.0, 0.0, 0.0), dt, 1.6)
-        self.target_speed = min(self.target_speed, 120.0)
+        goal = Vec3(0.0, 0.0, -120.0)          # just inside the slot mouth
+        delta = goal - f.pos
+        to_go = delta.length()
+        speed = max(40.0, min(280.0, to_go * 1.2))
+        f.speed = speed
+        self.target_speed = speed
+        if to_go > 0.5:
+            f.pos = f.pos + delta.norm() * min(to_go, speed * dt)
+        combat._steer(f, station.pos, dt, 2.0)
+        # Roll until our up vector matches the rotating slot.
+        if station.roll_error(f.orient.up) > math.radians(1.0):
+            slot_up = station.slot_vector()
+            up = f.orient.up
+            signed = math.atan2(up.x * slot_up.y - up.y * slot_up.x,
+                                up.x * slot_up.x + up.y * slot_up.y)
+            f.orient = (f.orient @ Mat3.rot_z(signed * min(1.0, 5.0 * dt))).renormalise()
         self.axes = {"pitch": 0.0, "roll": 0.0}
 
     def dock(self):
