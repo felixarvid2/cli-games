@@ -280,8 +280,7 @@ class Game:
                 state.complete_jump(state.jump["index"], state.jump["cost"])
                 self.chart_sel = state.pilot.system
                 self.target_speed = 200.0
-        combat.step(state, dt)
-        for note in missions.step(state, dt):
+        for note in state.step(dt):
             self.toast_now(note, 2.5)
         state.station.step(dt)
         self.autodock = max(0.0, self.autodock - dt)
@@ -1081,6 +1080,9 @@ class Game:
                 ("Missiles", f"{state.pilot.missiles} / {MAX_MISSILES}"),
                 ("Rank", state.pilot.rank),
                 ("Record", state.pilot.legal_name)]
+        events = getattr(state.market, "events", [])
+        if events:
+            rows.append(("Event", events[0].short + ": " + events[0].text[:12]))
         y = py + 1
         for label, value in rows:
             if label:
@@ -1157,7 +1159,6 @@ class Game:
                 p.badges.append("GRAND MASTER")
             state.say("You have circled all ten galaxies. GRAND MASTER.")
         p.system = galaxy.START_INDEX
-        state.market = Market.for_system(state.system)
         self.chart_sel = p.system
         self.toast_now(f"Galactic jump: galaxy {p.galaxy}/{galaxy.GALAXY_COUNT}", 2.6)
 

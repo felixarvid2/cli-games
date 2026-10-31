@@ -6,6 +6,7 @@ import random
 from dataclasses import dataclass, field
 
 from . import galaxy
+from . import economy
 from . import missions as mission_mod
 from .data import MAX_FUEL, START_CREDITS, legal_for, rank_for
 from .ships import LARGE_BAY_BONUS, PLAYER_SHIPS, player_ship
@@ -253,7 +254,6 @@ class GameState:
         self.sun = Vec3(60000.0, 24000.0, -42000.0)
         self.planet = Vec3(-70000.0, -18000.0, -90000.0)
         self.contacts = []
-        self.market = Market.for_system(self.system)
         self.messages = []
         self.mode = "flight"
         self.docking = False
@@ -269,6 +269,8 @@ class GameState:
         self.dead = False
         self.docked_at = None
         self.missions = []      # Mission objects, alive for this run
+        self.markets = {}       # "g:i" -> Market, kept between visits
+        self.events = {}        # "g:i" -> EventRecord, kept between visits
         self.boards = {}        # "g:i" -> {offers, next}
         self.completed = []     # mission ids already paid
         self.jettison_count = 0  # how many times the hatch has been used
@@ -277,6 +279,36 @@ class GameState:
     @property
     def system(self):
         return galaxy.system(self.pilot.galaxy, self.pilot.system)
+
+    @property
+    def market(self):
+        return self.market_for(self.system)
+
+    def market_for(self, system=None):
+        """The market of a system, with its events, kept in one place."""
+        system = system or self.system
+        key = f"{system.galaxy}:{system.index}"
+        market = self.markets.get(key)
+        if market is None or not market.events and self.events.get(key):
+            market = market or Market.for_system(system)
+            events, record = economy.merge(self.seed, system.galaxy,
+                                           system.index, self.time,
+                                           self.events.get(key))
+            self.events[key] = record
+            market.set_events(events)
+            self.markets[key] = market
+        return market
+
+    def tick_markets(self, dt):
+        for market in self.markets.values():
+            market.decay(dt)
+
+    def step(self, dt):
+        """Advance the whole simulation by one tick."""
+        from . import combat, missions as missions_mod
+        combat.step(self, dt)
+        self.tick_markets(dt)
+        return missions_mod.step(self, dt)
 
     @property
     def hull_max(self):
@@ -315,13 +347,6 @@ class GameState:
         self.mode = "docked"
         self.docking = False
         self.contacts = []
-        if self.docked_at is None or self.docked_at.index != self.system.index:
-            self.market = Market.for_system(self.system)
-        else:
-            # Prices settle back to equilibrium between visits.
-            for listing in self.market.listings.values():
-                listing.bought = 0
-                listing.sold = 0
         self.docked_at = self.system
         self.jump = None
         self.pilot.system = self.system.index
@@ -367,7 +392,6 @@ class GameState:
         self.pilot.fuel = round(max(0.0, self.pilot.fuel - cost), 1)
         self.pilot.system = index
         self.pilot.jumps += 1
-        self.market = Market.for_system(self.system)
         self.flight = FlightModel(pos=Vec3(0.0, 0.0, -24000.0)).apply_ship(
             self.pilot.ship_cfg)
         self.contacts = []
@@ -389,7 +413,9 @@ class GameState:
                 "time": self.time,
                 "missions": [m.to_dict() for m in self.missions],
                 "boards": self.boards, "completed": self.completed,
-                "jettison_count": self.jettison_count}
+                "jettison_count": self.jettison_count,
+                "markets": {key: m.to_dict() for key, m in self.markets.items()},
+                "events": {key: rec.to_dict() for key, rec in self.events.items()}}
 
     def save(self, path=SAVE_PATH):
         write_json(path, self.to_dict())
@@ -433,7 +459,12 @@ class GameState:
         state.boards = dict(data.get("boards") or {})
         state.completed = list(data.get("completed") or [])
         state.jettison_count = int(data.get("jettison_count", 0))
-        state.market = Market.for_system(state.system)
+        state.markets = {
+            key: Market.from_dict(galaxy.system(*[int(x) for x in key.split(":")]),
+                                  payload)
+            for key, payload in (data.get("markets") or {}).items()}
+        state.events = {key: economy.EventRecord.from_dict(payload)
+                        for key, payload in (data.get("events") or {}).items()}
         return state
 
     @classmethod

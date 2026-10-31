@@ -89,15 +89,51 @@ class Market:
 
     # -- events -----------------------------------------------------------
     def set_events(self, events):
-        """Apply local economic events to the equilibrium prices."""
+        """Apply local economic events to prices and local stock."""
         self.events = list(events)
         for listing in self.listings.values():
             factor = 1.0
+            stock_factor = 1.0
             for ev in self.events:
                 if listing.good.key in ev.goods:
                     factor *= ev.factor
-            base = self._base_price(listing.good)
-            listing.price = round(base * factor, 2)
+                    stock_factor *= getattr(ev, "stock", 1.0)
+            listing.price = round(self._base_price(listing.good) * factor, 2)
+            if stock_factor != 1.0:
+                listing.stock = max(0, int(round(listing.initial * stock_factor)))
+
+    def decay(self, seconds):
+        """Trade impact fades with time, so a market recovers if left alone."""
+        if seconds <= 0:
+            return
+        fade = max(0.0, 1.0 - seconds / 1800.0)   # half an hour to forget
+        for listing in self.listings.values():
+            listing.bought = int(listing.bought * fade)
+            listing.sold = int(listing.sold * fade)
+
+    # -- persistence -------------------------------------------------------
+    def to_dict(self):
+        return {"listings": {key: {"stock": l.stock, "bought": l.bought,
+                                    "sold": l.sold, "price": l.price}
+                              for key, l in self.listings.items()},
+                "events": [e.to_dict() for e in self.events]}
+
+    @classmethod
+    def from_dict(cls, system, data):
+        market = cls(system)
+        if not data:
+            return market
+        for key, row in (data.get("listings") or {}).items():
+            listing = market.listings.get(key)
+            if listing is None:
+                continue
+            listing.stock = int(row.get("stock", listing.stock))
+            listing.bought = int(row.get("bought", 0))
+            listing.sold = int(row.get("sold", 0))
+            listing.price = float(row.get("price", listing.price))
+        from .economy import Event
+        market.events = [Event.from_dict(e) for e in (data.get("events") or [])]
+        return market
 
     def _base_price(self, good):
         """Price with no events applied (recomputed, not accumulated)."""
