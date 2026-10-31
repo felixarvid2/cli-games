@@ -74,11 +74,29 @@ class FakeScreen:
         return "\n".join(out)
 
 
+def goto(game, target):
+    """Drive the UI to a well-known screen, the way a player would."""
+    if game.state is None:
+        game.handle(10)                 # new commander, starts docked
+
+    def pick(action):
+        actions = [key for key, _ in game.docked_items()]
+        game.docked_sel = actions.index(action)
+        game.handle(10)
+
+    if target in ("missions", "shipyard", "status", "inventory"):
+        pick(target)
+    elif target in ("launch", "chart", "flight"):
+        pick("launch")
+        if target == "chart":
+            game.handle(ord("h"))
+
+
 SPECIAL = {"~U": curses.KEY_UP, "~D": curses.KEY_DOWN, "~L": curses.KEY_LEFT,
            "~R": curses.KEY_RIGHT, "~E": 10}
 
 
-def play(opts, keys, contacts=0):
+def play(opts, keys):
     screen = FakeScreen(opts.rows, opts.cols)
     game = ui.Game(screen, opts)
     i = 0
@@ -90,19 +108,43 @@ def play(opts, keys, contacts=0):
         else:
             game.handle(ord(keys[i]))
             i += 1
-    if contacts and game.state is not None:
-        from coriolis import combat
-        from coriolis.flight import Vec3
-        names = ["cobra", "sidewinder", "python", "mamba"]
-        for i in range(contacts):
-            c = combat.make("ship", names[i % len(names)],
-                            Vec3(-700 + 500 * i, 140 - 90 * i, 1300 + 500 * i),
-                            hostile=(i % 2 == 0))
-            game.state.contacts.append(c)
-        game.state.missile_target = game.state.contacts[0]
-    screen.erase()
-    getattr(game, "draw_" + game.screen)()
     return game, screen
+
+
+def inject_contacts(game, contacts):
+    """Put a few ships in front of the player, for screenshots and tests."""
+    if not contacts or game.state is None:
+        return
+    from coriolis import combat
+    from coriolis.flight import Vec3
+    names = ["cobra", "sidewinder", "python", "mamba"]
+    base = game.state.flight.pos
+    for index in range(contacts):
+        ship = combat.make("ship", names[index % len(names)],
+                           base + Vec3(-700 + 500 * index, 140 - 90 * index,
+                                       1300 + 500 * index),
+                           hostile=(index % 2 == 0))
+        game.state.contacts.append(ship)
+    game.state.missile_target = game.state.contacts[0]
+    game.state.contacts[0].hostile = True
+
+
+def goto(game, target):
+    """Drive the UI to a well-known screen, the way a player would."""
+    if game.state is None:
+        game.handle(10)                 # new commander, starts docked
+
+    def pick(action):
+        actions = [key for key, _ in game.docked_items()]
+        game.docked_sel = actions.index(action)
+        game.handle(10)
+
+    if target in ("missions", "shipyard", "status", "inventory"):
+        pick(target)
+    elif target in ("launch", "chart", "flight"):
+        pick("launch")
+        if target == "chart":
+            game.handle(ord("h"))
 
 
 def main():
@@ -116,6 +158,9 @@ def main():
     ap.add_argument("--contacts", type=int, default=0)
     ap.add_argument("--galaxy", type=int, default=1)
     ap.add_argument("--no-colour", action="store_true")
+    ap.add_argument("--no-utf", action="store_true")
+    ap.add_argument("--goto", default="",
+                    help="missions, shipyard, launch, chart or status")
     ns = ap.parse_args()
     keys = ns.keys.encode().decode("unicode_escape")
     argv = ["--seed", str(ns.seed), "--galaxy", str(ns.galaxy)]
@@ -125,7 +170,14 @@ def main():
         argv.append("--no-colour")
     opts = ui.parse_args(argv)
     opts.rows, opts.cols = ns.rows, ns.cols
-    game, screen = play(opts, keys, ns.contacts)
+    opts.no_utf = ns.no_utf
+    game, screen = play(opts, keys)
+    if ns.goto:
+        goto(game, ns.goto)
+    inject_contacts(game, ns.contacts)
+    if ns.goto or ns.contacts:
+        screen.erase()
+        game.render()
     print(f"# screen={game.screen}  {ns.cols}x{ns.rows}")
     print(screen.highlights() if ns.attrs else screen.text())
 

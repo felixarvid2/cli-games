@@ -7,12 +7,13 @@ import os
 import sys
 import time
 
-from . import __version__, combat, galaxy, missions, navigation, sketch
+from . import (__version__, combat, galaxy, missions, navigation, progression,
+               sketch, tutorial)
 from . import visuals as V
-from .core import (GameState, clear_save, load_profile, save_profile)
+from .core import (SAVE_PATH, GameState, clear_save, load_profile,
+                   save_profile)
 from .data import GOOD_BY_KEY, MAX_FUEL, MAX_MISSILES, rank_for
 from .flight import Mat3, Vec3
-from .market import Market
 from . import station as st
 
 LOGO = (
@@ -55,7 +56,8 @@ class Game:
     def __init__(self, scr, opts):
         self.scr = scr
         self.opts = opts
-        self.utf = "utf" in (sys.stdout.encoding or "").lower()
+        self.utf = ("utf" in (sys.stdout.encoding or "").lower()
+                     and not getattr(opts, "no_utf", False))
         self.g = V.glyphs(self.utf)
         self.art = opts.art
         self.seed = opts.seed
@@ -71,7 +73,8 @@ class Game:
         self.menu = 0
         self.state = None
         self.profile = load_profile()
-        self.has_save = GameState.load() is not None
+        saved, self.save_problem = GameState.load_with_reason()
+        self.has_save = saved is not None
         self.t = 0.0
         self.last = time.monotonic()
         self.acc = 0.0
@@ -224,16 +227,18 @@ class Game:
         return self.stack[-2] if len(self.stack) > 1 else self.stack[0]
 
     def escape(self):
-        """Escape means 'back', except in flight where it pauses."""
+        """Escape is 'back'; at the root it opens the pause menu."""
         here = self.screen
         if here in ("title", "dead"):
             return
-        if here == "flight":
-            self.push("pause")
-        elif here == "pause":
+        if here == "pause":
             self.back()
-        else:
-            self.back()
+            return
+        if len(self.stack) <= 1:
+            if here in ("docked", "flight"):
+                self.push("pause")
+            return
+        self.back()
 
     def handle(self, ch):
         key = keyname(ch)
@@ -417,6 +422,9 @@ class Game:
         self.put(h - 4, w - 24, f"KILLS {self.profile.kills}", self.C("dim"))
         self.put(h - 3, 2, f"v{__version__}", self.C("faint"))
         self.put(h - 3, w - 34, "ENTER select   Q quit", self.C("dim"))
+        if self.save_problem and os.path.exists(SAVE_PATH):
+            self.put(h - 2, 2, V.cut("SAVE: " + self.save_problem, w - 4),
+                     self.C("red"))
 
     def key_title(self, key):
         if key in ("up", "w", "k"):
@@ -443,18 +451,21 @@ class Game:
         self.state.pilot.system = galaxy.START_INDEX
         self.chart_sel = self.state.pilot.system
         self.target_speed = 0.0
-        if self.opts.start_docked:
-            self.dock()
-            self.toast_now("Docked at Lave. Buy low, sell high.", 3.0)
-            return
-        self.state.launch()
-        self.go("chart")
-        self.toast_now("Welcome, Commander. Pick a destination.", 3.0)
+        tutorial.start(self.state.pilot)
+        self.dock()
+        if not self.opts.no_tutorial:
+            tutorial.ensure_offer(self.state)
+            self.state.save()
+            self.toast_now("Welcome, Commander. There is a contract on the board.",
+                           3.2)
+        else:
+            tutorial.skip(self.state.pilot)
+            self.toast_now("Welcome, Commander. Buy low, sell high.", 3.0)
 
     def continue_game(self):
-        state = GameState.load()
+        state, reason = GameState.load_with_reason()
         if state is None:
-            self.toast_now("No save game found", 2.0)
+            self.toast_now(reason or "No save game found", 3.0)
             return
         self.state = state
         self.chart_sel = state.pilot.system
@@ -1015,6 +1026,8 @@ class Game:
                  ("journal", "Journal")]
         if st.has_shipyard(state.system):
             items.insert(4, ("shipyard", "Shipyard"))
+        if tutorial.active(state.pilot):
+            items.append(("skip_tutorial", "Skip the tutorial"))
         if state.pilot.has("galactic"):
             items.append(("galactic", "Galactic hyperdrive"))
         items += [("launch", "Launch"), ("save", "Save and quit")]
@@ -1035,6 +1048,7 @@ class Game:
             attr = self.C("gold", True) | curses.A_REVERSE if i == self.docked_sel else self.C("white")
             self.put(y, 3, f" {label:<24}", attr)
         self.draw_trade_advice(len(items))
+        self.draw_tutorial_line()
         self.draw_station_panel()
         self.put(self.h - 2, 2, "Arrows pick   ENTER select   ESC pause   ? controls",
                  self.C("dim"))
@@ -1062,6 +1076,14 @@ class Game:
                     f"{tonnes:3d}t {net:+6.0f} {risk}")
             self.put(y + 1 + i, 4, V.cut(line, 44),
                      self.C("green" if i == 0 else "white"))
+
+    def draw_tutorial_line(self):
+        pilot = self.state.pilot
+        if not tutorial.active(pilot):
+            return
+        index = tutorial.STEPS.index(tutorial.step(pilot)) + 1
+        line = f"TUTORIAL {index}/{len(tutorial.STEPS)}: {tutorial.text(pilot)}"
+        self.put(self.h - 3, 2, V.cut(line, self.w - 4), self.C("gold"))
 
     def draw_station_panel(self):
         state = self.state
@@ -1119,6 +1141,11 @@ class Game:
     def do_shipyard(self):
         self.yard_sel = 0
         self.push("shipyard")
+
+    def do_skip_tutorial(self):
+        if tutorial.skip(self.state.pilot):
+            self.state.save_after_trade()
+            self.toast_now("Tutorial skipped", 1.8)
 
     def do_missions(self):
         self.mission_tab = 0
@@ -1703,6 +1730,16 @@ class Game:
             self.put(5 + i, x, f"{self.g['tick']} {item}", self.C("green"))
         if not eq:
             self.put(5, x, "nothing fitted", self.C("faint"))
+        self.put(12, x, "TRADE", self.C("cyan", True))
+        self.put(13, x, V.cut(progression.trade_rank(p.trade_profit), 18),
+                 self.C("white"))
+        self.put(14, x, V.cut(progression.progress_line(p.trade_profit), 26),
+                 self.C("dim"))
+        self.put(15, x, "EXPLORATION", self.C("cyan", True))
+        self.put(16, x, V.cut(f"{progression.explore_rank(len(p.visited))}"
+                              f" ({len(p.visited)} systems)", 26), self.C("white"))
+        self.put(17, x, V.cut(progression.explore_line(len(p.visited)), 26),
+                 self.C("dim"))
         self.put(18, x, "BADGES", self.C("cyan", True))
         if p.badges:
             for i, badge in enumerate(p.badges[:4]):
@@ -1866,9 +1903,13 @@ def parse_args(argv=None):
     ap.add_argument("--art", choices=("solid", "wire", "hybrid"), default="solid",
                     help="ship silhouettes, outlines, or outlines up close")
     ap.add_argument("--no-colour", action="store_true", help="monochrome")
+    ap.add_argument("--no-utf", action="store_true",
+                    help="draw with ASCII only")
     ap.add_argument("--classic", action="store_true", help="1984-style key map")
     ap.add_argument("--start-docked", action="store_true",
-                    help="skip the launch and start at the station menu")
+                    help="start at the station menu (the default for new games)")
+    ap.add_argument("--no-tutorial", action="store_true",
+                    help="skip the introduction for a new commander")
     ap.add_argument("--version", action="store_true")
     ap.add_argument("--dump-galaxy", type=int, default=None, metavar="N",
                     help="print the systems of galaxy N and exit")

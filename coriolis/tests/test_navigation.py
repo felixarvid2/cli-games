@@ -14,9 +14,7 @@ def docked_game(argv=None):
 
 def flight_game():
     game, scr = support.make_game("\n", ["--seed", "1"])
-    neighbour = galaxy.neighbours(1, game.state.pilot.system)[0][1]
-    game.chart_sel = neighbour.index
-    game.handle(ENTER)
+    support.pick(game, "launch")
     assert game.screen == "flight", game.screen
     return game, scr
 
@@ -30,10 +28,13 @@ class EscapeTest(unittest.TestCase):
             game.handle(ESC)
             self.assertEqual(game.screen, "docked", action)
 
-    def test_escaping_twice_in_a_row_does_not_open_the_pause_menu(self):
+    def test_escape_from_a_submenu_then_the_station_opens_pause(self):
         game, _ = docked_game()
         support.pick(game, "buy")
         game.handle(ESC)
+        self.assertEqual(game.screen, "docked")
+        game.handle(ESC)
+        self.assertEqual(game.screen, "pause")
         game.handle(ESC)
         self.assertEqual(game.screen, "docked")
         self.assertNotIn("pause", game.stack)
@@ -127,6 +128,13 @@ class CycleTest(unittest.TestCase):
             self.assertEqual(game.screen, "flight")
         self.assertEqual(game.stack.count("pause"), 0)
         self.assertLessEqual(len(game.stack), 3)
+
+    def test_pause_from_the_station_resumes_the_station(self):
+        game, _ = docked_game()
+        game.handle(ESC)
+        self.assertEqual(game.screen, "pause")
+        game.handle(ENTER)                       # Resume
+        self.assertEqual(game.screen, "docked")
 
     def test_quitting_to_title_clears_the_stack(self):
         game, _ = flight_game()

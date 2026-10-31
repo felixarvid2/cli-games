@@ -81,7 +81,11 @@ class PlannerTest(unittest.TestCase):
 
 class ChartTest(unittest.TestCase):
     def chart(self, keys="\n"):
-        return support.make_game(keys, ["--seed", "1"])
+        """A new commander, launched, with the chart open."""
+        game, scr = support.make_game(keys, ["--seed", "1"])
+        support.pick(game, "launch")
+        game.handle(ord("h"))
+        return game, scr
 
     def test_search_selects_a_system(self):
         game, scr = self.chart()

@@ -6,7 +6,7 @@ import random
 from dataclasses import dataclass, field
 
 from . import galaxy
-from . import economy
+from . import economy, progression, tutorial
 from . import missions as mission_mod
 from .data import MAX_FUEL, START_CREDITS, legal_for, rank_for
 from .ships import LARGE_BAY_BONUS, PLAYER_SHIPS, player_ship
@@ -14,7 +14,7 @@ from .flight import FlightModel, Vec3
 from .market import Market
 from .station import Station
 
-SAVE_VERSION = 1
+SAVE_VERSION = 2
 START_INDEX = galaxy.START_INDEX
 DATA_DIR = os.path.join(
     os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share")),
@@ -308,7 +308,28 @@ class GameState:
         from . import combat, missions as missions_mod
         combat.step(self, dt)
         self.tick_markets(dt)
-        return missions_mod.step(self, dt)
+        notes = missions_mod.step(self, dt)
+        notes += self.check_ranks()
+        return notes
+
+    def check_ranks(self):
+        """Trade and exploration ranks, announced once when they change."""
+        pilot = self.pilot
+        notes = []
+        trade = progression.trade_rank(pilot.trade_profit)
+        explore = progression.explore_rank(len(pilot.visited))
+        intel = pilot.intel
+        if intel.get("trade_rank") is None:
+            intel["trade_rank"] = trade
+        if intel.get("explore_rank") is None:
+            intel["explore_rank"] = explore
+        if trade != intel.get("trade_rank"):
+            intel["trade_rank"] = trade
+            notes.append(f"Trade rank: {trade}")
+        if explore != intel.get("explore_rank"):
+            intel["explore_rank"] = explore
+            notes.append(f"Exploration rank: {explore}")
+        return notes
 
     @property
     def hull_max(self):
@@ -359,7 +380,15 @@ class GameState:
             self.say(f"Fines of {paid:.0f} CR collected"
                      + (" - the rest is still owed"
                         if fines - paid > 0 else ""))
+        first_visit = self.pilot.visit(self.pilot.galaxy, self.pilot.system)
+        if first_visit:
+            self.pilot.intel["visited"] = len(self.pilot.visited)
+        # The tutorial hears about the docking before the contracts resolve, so
+        # a delivery can finish the introduction in the same visit.
+        tutorial.notify(self, "dock")
         for note in mission_mod.on_dock(self):
+            self.say(note)
+        for note in self.check_ranks():
             self.say(note)
 
     # -- hyperspace ------------------------------------------------------
@@ -399,6 +428,9 @@ class GameState:
         self.say(f"Arrived at {self.system.name}. Station bearing 000.")
         for note in mission_mod.on_jump(self):
             self.say(note)
+        tutorial.notify(self, "jump", dest=f"{self.pilot.galaxy}:{self.pilot.system}")
+        for note in self.check_ranks():
+            self.say(note)
         from . import combat
         combat.spawn(self, arrivals=True)
         mission_mod.spawn_contacts(self)
@@ -415,9 +447,22 @@ class GameState:
                 "boards": self.boards, "completed": self.completed,
                 "jettison_count": self.jettison_count,
                 "markets": {key: m.to_dict() for key, m in self.markets.items()},
-                "events": {key: rec.to_dict() for key, rec in self.events.items()}}
+                "events": {key: rec.to_dict() for key, rec in self.events.items()},
+                "rng": _rng_state(self.rng)}
 
     def save(self, path=SAVE_PATH):
+        """Write the run, keeping any unreadable older file as a .bad backup."""
+        if os.path.exists(path):
+            data = read_json(path)
+            try:
+                ok = data is not None and int(data.get("version", 0)) <= SAVE_VERSION
+            except (TypeError, ValueError):
+                ok = False
+            if not ok:
+                try:
+                    os.replace(path, path + ".bad")
+                except OSError:
+                    pass
         write_json(path, self.to_dict())
 
     def apply_ship(self, repair=True):
@@ -469,13 +514,78 @@ class GameState:
 
     @classmethod
     def load(cls, path=SAVE_PATH):
+        return cls.load_with_reason(path)[0]
+
+    @classmethod
+    def load_with_reason(cls, path=SAVE_PATH):
+        """Load a run, explaining why it could not be used."""
+        if not os.path.exists(path):
+            return None, "No saved game"
         data = read_json(path)
-        if not data or data.get("version") != SAVE_VERSION:
-            return None
+        if data is None:
+            return None, "The save file is damaged and was left untouched"
         try:
-            return cls.from_dict(data)
-        except (TypeError, ValueError, KeyError):
-            return None
+            data = migrate(data)
+            state = cls.from_dict(data)
+        except (TypeError, ValueError, KeyError) as exc:
+            return None, f"The save file cannot be used: {exc}"
+        _rng_from(state, data.get("rng"))
+        return state, ""
+
+
+def _rng_state(rng):
+    """Random state as JSON-safe data, so a run continues exactly."""
+    version, internal, gauss = rng.getstate()
+    return [version, list(internal), gauss]
+
+
+def _rng_from(state, data):
+    if not data:
+        return
+    try:
+        version, internal, gauss = data
+        state.rng.setstate((version, tuple(internal), gauss))
+    except (TypeError, ValueError):
+        pass
+
+
+def migrate(data):
+    """Bring an older save up to the current format."""
+    version = int(data.get("version", 1))
+    if version > SAVE_VERSION:
+        raise ValueError(f"save version {version} is newer than {SAVE_VERSION}")
+    if version < 2:
+        data = _migrate_1_to_2(dict(data))
+    data["version"] = SAVE_VERSION
+    return data
+
+
+def _migrate_1_to_2(data):
+    """Version 1 had no ships, missions, markets, events or progression."""
+    pilot = dict(data.get("pilot") or {})
+    pilot.setdefault("ship", "cobra")
+    if int(pilot.get("cargo_cap", 20) or 20) > 20             and "largebay" not in (pilot.get("equipment") or []):
+        pilot.setdefault("equipment", [])
+        pilot["equipment"] = list(pilot["equipment"]) + ["largebay"]
+    pilot.pop("cargo_cap", None)
+    pilot.setdefault("costs", {})
+    pilot.setdefault("reserved", {})
+    pilot.setdefault("trade_profit", 0.0)
+    pilot.setdefault("missions", [])
+    pilot.setdefault("visited", [f"{pilot.get('galaxy', 1)}:{pilot.get('system', 7)}"])
+    pilot.setdefault("tutorial", {"step": 5, "done": True, "rewarded": True,
+                                  "skipped": True, "mid": ""})
+    pilot.setdefault("intel", {})
+    data["pilot"] = pilot
+    data.setdefault("time", 0.0)
+    data.setdefault("missions", [])
+    data.setdefault("markets", {})
+    data.setdefault("events", {})
+    data.setdefault("boards", {})
+    data.setdefault("completed", [])
+    data.setdefault("jettison_count", 0)
+    data.pop("rng", None)
+    return data
 
 
 def read_json(path):

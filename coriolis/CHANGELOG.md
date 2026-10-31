@@ -1,49 +1,93 @@
 # Changelog
 
-## 0.1.0
+## 0.2.0
 
-First playable version.
+A second pass over the whole game: contracts, hulls, navigation, a deeper
+economy, and AI that reacts to what the player does.
 
-### Galaxy
-- Ten galaxies of 256 systems each (2560 total), generated from three 16-bit
-  seed words with the classic twist and digram name table.
-- Jittered-grid chart layout with a repair pass, so no system is unreachable.
-- Galaxy one is seeded so system 7 is Lave with its classic profile.
-- `--dump-galaxy N` prints any galaxy; `tools/find_seed.py` searches seeds.
+### Interface and navigation
+- Escape is a real back action backed by a screen stack: station submenus
+  return to the station, pause resumes the screen it came from, help returns to
+  whoever opened it, and repeated menu cycles cannot trap the player.
+- Full stop on the old bug where Escape from the buy screen opened pause and a
+  second Escape left Resume pointing at pause.
 
-### Flight
-- Real 3D with pitch and roll only; position, velocity and a 3x3 orientation
-  matrix that is re-orthonormalised as it turns.
-- Character rasteriser (`sketch.py`): starfield, ships, asteroids, sun, planet,
-  station, depth buffer, silhouettes scaled by distance, three art modes.
-- Forward radar with bearing, distance and contact height.
-- Speed control, mass lock, hyperspace with a three second countdown.
+### Trading
+- Purchases and sales go through side-effect free quotes used by the interface,
+  the route advice and the transaction itself, so the quoted total is exactly
+  what is charged.
+- Fixed the double counted price impact in bulk trades and the unit-price
+  estimate that ignored the price curve.
+- Cost basis per commodity, realised profit shown separately from revenue, and
+  a consistent 0.1 CR rounding.
+- `M` buys the maximum or sells the lot, with the executable quantity and the
+  exact total shown before you press it.
 
-### Combat
-- Fourteen ship types plus asteroids and cargo canisters, with AI roles for
-  pirates, police, traders, hunters and Thargoids.
-- Laser with cone hit detection and range falloff, missile lock and homing
-  missiles, E.C.M., energy bomb, escape capsule.
-- Shields fore/aft, four energy banks, hull damage, bounties, legal status.
+### Combat and AI
+- Bounded pitch-and-roll steering that can acquire a target behind, above or
+  beside the ship, used by NPCs and missiles.
+- Pirates intercept, demand cargo and only fire when refused; jettisoning works.
+- Police scan for contraband, fine and seize it, hunt fugitives, and patrol
+  harder in lawful space. Traders flee, call mayday and shed cargo. Bounty
+  hunters only chase pilots with a record.
+- Telegraphed NPC missiles that home and damage the player, making ECM useful.
+- Asteroids, canisters and interceptors no longer count as murdered crews.
 
-### Trading and stations
-- Seventeen commodities with economy-driven prices, bid/ask spread and market
-  impact that prevents same-station arbitrage.
-- Coriolis station with a rotating slot; docking checks roll, lateral offset,
-  speed and approach side, with a crash penalty.
-- Station services: buy, sell, equipment, refuel, repair, clear record,
-  galactic hyperdrive, best-hop trade advice.
-- Sun skimming with fuel scoops.
+### Missions
+- Station mission board with freight, courier, escort, rescue and bounty
+  contracts, deadlines on the simulation clock, reserved cargo, a journal, and
+  rewards paid exactly once.
+- Boards are seeded, persisted per station and never rerolled by docking.
 
-### UI
-- Curses cockpit and menus, 78x24 minimum, responsive up to 100x32 and beyond.
-- Title, chart, flight, docked, buy, sell, equipment, status, inventory, help
-  and pause screens, all reachable by keyboard.
-- `--art`, `--classic`, `--no-colour`, `--start-docked`, `--seed`, `--galaxy`.
+### Ships
+- Five playable hulls with real differences in hold, speed, acceleration, turn
+  rate, protection, racks and equipment slots; a shipyard that validates the
+  purchase and shows the trade-in and final cost; no trade-in exploit.
+- Hull and shield limits, the flight model, repairs and the HUD follow the ship.
+
+### Docking
+- Docking instrument with distance, lateral offset and side, signed roll error
+  and direction, speed against the safe limit, and a clear-to-dock readout.
+  Guidance and collision rules share one function.
+- The docking computer is armed with `C`, explains why it cannot engage, and
+  disarms itself after docking.
+
+### Chart and economy
+- System search, local and galaxy views, and multi-hop route planning (shortest
+  or safer) that respects one tank per leg and says where to refuel.
+- Mission and trade destinations selectable from the chart.
+- Local economic events (shortages, construction, disruptions, gluts, festivals,
+  medical emergencies) with durations, saved with the game.
+- Markets persist between visits; trade impact fades with time rather than
+  resetting, so stock cannot be refreshed by leaving and returning.
+
+### Salvage and mining
+- Wrecks leave canisters with a commodity, quantity and legal status; scooping
+  needs equipment, space and a sane speed, and is resolved before collisions.
+- Asteroids have finite ore, a mining laser cuts it loose, and fragments must be
+  scooped.
+
+### Progression
+- New commanders start docked with a short, skippable tutorial that advances on
+  real events and pays its reward once.
+- Trading rank from realised profit and exploration rank from unique systems,
+  alongside the existing combat rank, with milestones shown and announced.
+
+### Saves
+- Format version 2 with automatic migration from version 1; damaged or newer
+  saves are explained and never overwritten (the old file is kept as `.bad`).
+- Markets, events, missions, boards, tutorial state and the random state are all
+  persisted, so a seeded run continues exactly.
 
 ### Under the hood
-- Save games in `$XDG_DATA_HOME/coriolis`, atomic writes, versioned format.
-- 129 unit tests covering generation, maths, docking, combat, market, saves and
-  every screen rendered headlessly.
-- `tools/render.py` (headless screenshots), `tools/screenshot.py` (pty capture),
-  `tools/build_zipapp.sh` (single-file build).
+- New headless modules: `missions`, `navigation`, `economy`, `progression`,
+  `tutorial`; the simulation now owns its clock, so tests drive the same code
+  the terminal does.
+- 301 tests, including full keyboard playthroughs and every screen rendered at
+  78x24, 80x24 and 100x32 in Unicode, ASCII and monochrome.
+
+## 0.1.0
+
+First playable version: ten galaxies of 256 seeded systems, 3D flight with pitch
+and roll only, a rotating Coriolis slot, trading, combat, bounties, ranks and a
+station economy.

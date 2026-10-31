@@ -2,8 +2,7 @@
 
 import math
 
-from .data import (EQUIPMENT, EQUIPMENT_BY_KEY, FUEL_PRICE, MAX_FUEL,
-                   MAX_MISSILES)
+from .data import EQUIPMENT, EQUIPMENT_BY_KEY, FUEL_PRICE, MAX_FUEL
 from .flight import Vec3
 
 RADIUS = 420.0

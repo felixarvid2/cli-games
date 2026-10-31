@@ -1,41 +1,35 @@
 import unittest
 
 import support
-from coriolis import galaxy
+from coriolis import galaxy, missions
 
 SCREENS = ("title", "chart", "flight", "docked", "buy", "sell", "equip",
            "status", "inventory", "help", "pause")
 
 
 def open_game(screen, argv=None, rows=24, cols=80):
-    """Drive the UI to a screen via the keyboard and return (game, screen)."""
+    """Drive the UI to a screen with the keyboard."""
     argv = argv or ["--seed", "1"]
     if screen == "title":
         return support.make_game("", argv, rows, cols)
-    if screen == "chart":
-        return support.make_game("\n", argv, rows, cols)
-    if screen == "flight":
-        game, scr = support.make_game("\n", argv, rows, cols)
-        game.chart_sel = galaxy.neighbours(1, game.state.pilot.system)[0][1].index
-        game.handle(10)
+    game, scr = support.make_game("\n", argv, rows, cols)   # docked
+    if screen == "docked":
         return game, scr
-    if screen in ("docked", "equip", "status", "inventory"):
-        game, scr = support.make_game("\n", argv + ["--start-docked"], rows, cols)
-        if screen in ("equip", "status", "inventory"):
-            support.pick(game, screen)
-        return game, scr
-    if screen in ("buy", "sell"):
-        game, scr = support.make_game("\n", argv + ["--start-docked"], rows, cols)
+    if screen in ("buy", "sell", "equip", "status", "inventory", "missions"):
         support.pick(game, screen)
         return game, scr
+    support.pick(game, "launch")                            # flight
+    if screen == "flight":
+        return game, scr
+    action = {"chart": "h", "status": "2", "inventory": "3"}.get(screen)
+    if action:
+        game.handle(ord(action))
+        return game, scr
     if screen == "help":
-        game, scr = support.make_game("\n?", argv, rows, cols)
+        game.handle(ord("?"))
         return game, scr
     if screen == "pause":
-        game, scr = support.make_game("\n~R", argv, rows, cols)
-        game.chart_sel = galaxy.neighbours(1, game.state.pilot.system)[0][1].index
-        game.handle(10)
-        game.handle(27)
+        game.handle(support.KEYS["esc"])
         return game, scr
     raise AssertionError(screen)
 
@@ -73,20 +67,23 @@ class ScreenTest(unittest.TestCase):
 
 
 class FlowTest(unittest.TestCase):
-    def test_new_game_opens_the_chart(self):
+    def test_new_game_starts_docked_with_a_contract(self):
         game, scr = support.make_game("\n")
-        self.assertEqual(game.screen, "chart")
+        self.assertEqual(game.screen, "docked")
         self.assertIsNotNone(game.state)
         self.assertEqual(game.state.system.name, "Lave")
+        self.assertTrue(any(m.tutorial for m in missions.offers(game.state)))
+        text = support.draw(game, scr)
+        self.assertIn("TUTORIAL 1/5", text)
 
     def test_chart_arrow_moves_the_selection(self):
-        game, _ = support.make_game("\n")
+        game, _ = open_game("chart")
         before = game.chart_sel
         game.handle(support.KEYS["right"])
         self.assertNotEqual(game.chart_sel, before)
 
     def test_jump_from_chart_enters_flight(self):
-        game, _ = support.make_game("\n")
+        game, _ = open_game("chart")
         neighbour = galaxy.neighbours(1, game.state.pilot.system)[0][1]
         game.chart_sel = neighbour.index
         game.handle(10)
@@ -95,7 +92,7 @@ class FlowTest(unittest.TestCase):
         self.assertEqual(game.state.jump["index"], neighbour.index)
 
     def test_jump_completes_and_charges_fuel(self):
-        game, _ = support.make_game("\n")
+        game, _ = open_game("chart")
         dist, neighbour = galaxy.neighbours(1, game.state.pilot.system)[0]
         game.chart_sel = neighbour.index
         game.handle(10)
@@ -106,7 +103,7 @@ class FlowTest(unittest.TestCase):
         self.assertAlmostEqual(game.state.pilot.fuel, 7.0 - dist, places=1)
 
     def test_cannot_jump_without_range(self):
-        game, _ = support.make_game("\n")
+        game, _ = open_game("chart")
         game.state.pilot.fuel = 0.0
         game.chart_sel = galaxy.neighbours(1, game.state.pilot.system)[0][1].index
         game.handle(10)
@@ -148,10 +145,11 @@ class FlowTest(unittest.TestCase):
         self.assertTrue(game.has_save)
 
     def test_help_returns_to_where_it_came_from(self):
-        game, _ = support.make_game("\n?")
+        game, _ = support.make_game("\n")
+        game.handle(ord("?"))
         self.assertEqual(game.screen, "help")
         game.handle(27)
-        self.assertEqual(game.screen, "chart")
+        self.assertEqual(game.screen, "docked")
 
     def test_pause_resumes(self):
         game, _ = open_game("pause")

@@ -6,12 +6,10 @@ through a function that can be tested headlessly. Time is the simulation clock,
 which only advances while the game is being flown.
 """
 
-import math
 import zlib
 from dataclasses import asdict, dataclass, field
 
 from . import galaxy
-from .data import GOODS
 
 KINDS = ("freight", "courier", "escort", "rescue", "bounty")
 BOARD_SIZE = 4
@@ -40,6 +38,7 @@ class Mission:
     paid: bool = False
     reason: str = ""
     difficulty: int = 1
+    tutorial: bool = False
 
     # -- helpers ---------------------------------------------------------
     @property
@@ -289,6 +288,8 @@ def accept(state, mission):
     state.missions.append(mission)
     _drop_offer(state, mission)
     state.say(f"Contract accepted: {mission.title}")
+    from . import tutorial
+    tutorial.notify(state, "accept", mission)
     return True, f"Accepted: {mission.title}"
 
 
@@ -323,6 +324,8 @@ def complete(state, mission, note=""):
         state.missions.remove(mission)
     state.completed.append(mission.mid)
     state.say(f"Contract complete: {mission.title} (+{mission.pay:.0f} CR)")
+    from . import tutorial
+    tutorial.notify(state, "deliver", mission)
     return True, f"Paid {mission.pay:.0f} CR for {mission.title}"
 
 

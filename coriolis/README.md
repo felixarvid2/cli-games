@@ -3,33 +3,34 @@
 **An Elite-style space trading and combat game for the terminal.**
 
 Ten galaxies, 2560 star systems, a Coriolis station you have to dock with by
-hand, and pirates who would rather you did not. All of it inside an 80x24
-character cockpit.
+hand, pirates who would rather you did not, and a mission board that pays for
+the risk. All of it inside an 80x24 character cockpit.
 
 ```
  CORIOLIS  · LAVE           FUEL  7.0 LY  CR 100.0            CLEAN
  ──────────────────────────────────────────────────────────────────────────────
 
 
-
-                               ---  /______\
-                               |+| |        |
-                               --- | -+   --|
+                               +
+                                    /______\
+                                   |        |
+                                   | --   --|
                                     \______/
                                         |
 
                              .         .
-
  ──────────────────────────────────────────────────────────────────────────────
   SPD ░░░░░░░░░░░░    0 m/s    FORE ██████████  AFT ██████████  HULL ████████
   E1 █████ E2 █████ E3 █████ E4 █████   MISSILES ●●●○   ---  ----  PULSE
  ──────────────────────────────────────────────────────────────────────────────
- ┌─ RADAR ───────┐ ALERT Hyperspace to Raer in 3...
- │               │ TARGET Cobra Mk III 7.3 km
- │       +       │ DOCK 6.0 km  Slot 5860m ahead
- │               │ HYPER RAER in 3.0
+ ┌─ RADAR ───────┐ ALERT Launch. Fly toward the station slot to dock.
+ │               │ TARGET Sidewinder 1.8 km
+ │     o o       │ DOCK 6000m  lat 0m  roll +0  0/320
+ │       +       │ move toward the entrance
+ │               │ MASS LOCKED
  └───────────────┘
   S/X pitch  ,/. roll  A/Z speed  SPC fire  T lock  M missile  E ECM  H chart
+  Welcome, Commander. There is a contract on the board.
 ```
 
 ## Run it
@@ -42,7 +43,8 @@ pip install . && coriolis       # installed command
 ```
 
 Requires Python 3.9+ and a terminal with `curses`. No third-party packages.
-Minimum size is 78x24; 100x32 looks better.
+Minimum size is 78x24; 100x32 looks better. A new commander starts docked, with
+a short tutorial contract on the board.
 
 | Option | Meaning |
 | --- | --- |
@@ -50,17 +52,17 @@ Minimum size is 78x24; 100x32 looks better.
 | `--galaxy N` | start in galaxy 1-10 |
 | `--art solid\|wire\|hybrid` | ship silhouettes, outlines, or outlines up close |
 | `--classic` | 1984 key map: arrows do nothing, fly with letters |
-| `--start-docked` | skip the launch, start at the station menu |
+| `--no-tutorial` | skip the introduction |
 | `--dump-galaxy N` | print all 256 systems of a galaxy and exit |
-| `--selftest` | headless thirty-second simulation, then exit |
+| `--selftest` | headless simulation, then exit |
 | `--no-colour` | monochrome |
 
-## The galaxy
+## The galaxy and the chart
 
 ```
  CORIOLIS  · LAVE           FUEL  7.0 LY  CR 100.0            CLEAN
  ──────────────────────────────────────────────────────────────────────────────
-  GALACTIC CHART  1/10  LAVE  →  LAVE   0.0 LY
+  CHART  1/10   [GALAXY]  [SHORT]  LAVE  →  LAVE  0.0 LY
  ┌────────────────────────────────────────────┐┌─ LAVE ───────────────────────┐
  │·  ·  ·   · ·  · ·  ·  ·  · ·  ·  ·  · ·   ·││ Economy      Rich Agr.       │
  │ · ·  ·  ·  ·  ·  ·  · ·  · ·   · ·  · ·  · ││ Government   Feudal          │
@@ -74,117 +76,182 @@ Minimum size is 78x24; 100x32 looks better.
  │·  ·  ·  ·  · ·   · ·  ·  ·  · ·· · ·  ·   ·││                              │
  │·  ·   · ·  ·  · ·  · ·   ·  ·  ··  ·   · · ││                              │
  │ · ·  ·  ·  · ·  ·   · ·  · ·  ·  ·  ·  · · ││                              │
- │·  ·   ··   ·  · ·  ·  · ·  ·  · ·   ·  ·  ·││ YOU ARE HERE                 │
- │·   · ·   · ·  · ·   ● LAVE ·  · ·   ·  ·  ·│└──────────────────────────────┘
- │·   ·  ·  · · ·  ●   @  ● ·  ·  · ·  · ·  · │
+ │·  ·   ··   ·  · ·  ·  · ·  ·  · ·   ·  ·  ·││                              │
+ │·   · ·   · ·  · ·   ● LAVE ·  · ·   ·  ·  ·││ YOU ARE HERE                 │
+ │·   ·  ·  · · ·  ●   @  ● ·  ·  · ·  · ·  · │└──────────────────────────────┘
  └────────────────────────────────────────────┘
 
 
-  Arrows pick   ENTER/H jump   ESC pause   ? controls
+  Arrows pick  / find  P route  V view  M mode  N missions  T trade  ENTER ju.
+  Welcome, Commander. There is a contract on the board.
 ```
 
 Every galaxy is a chain of 256 systems generated from three 16-bit seed words:
 `tweak(seed)` advances the chain, and each system draws its name from the
 original digram table plus its chart position, economy, government, tech level,
-population, productivity and radius.
+population, productivity and radius. The chart is a jittered 16x16 grid, then
+nudged so that **no system is stranded** - everything has at least one
+neighbour inside one fuel tank. Galaxy one is seeded so system 7 is **Lave**
+with its classic profile.
 
-The chart is a jittered 16x16 grid, then nudged so that **no system is ever
-stranded** - everything has at least one neighbour inside one fuel tank. Galaxy
-one is seeded so that system 7 is **Lave**, with its classic profile: rich
-agricultural, feudal, tech 5, 2.0 billion people. `tools/find_seed.py` is the
-brute-force search that found that seed, and `--dump-galaxy 1` prints the
-galaxy exactly as generated.
+The chart has two views (local neighbourhood or whole galaxy), name search
+(`/`), and route planning with `P`: shortest by distance, or safer with `M`,
+using the fuel actually in the tanks for the first leg and a full tank for the
+rest. It shows the next hop, the number of jumps, the total distance and where
+you must refuel, and it explains when a destination cannot be reached. Mission
+destinations (`N`) and trade recommendations (`T`) can be selected straight from
+the chart. Jumping a route still goes through the normal jump, fuel and combat
+rules.
 
-## Flying and fighting
-
-- Real 3D: your ship has a position, a velocity along its nose, and an
-  orientation matrix. **Pitch and roll only, no yaw**, just like 1984.
-- The forward view is rasterised to text: starfield, ships, asteroids, the sun,
-  the planet and the station, depth-sorted so nearer things occlude further ones.
-- Ships render as silhouettes that shrink with distance; past a few kilometres
-  they become a single glyph. `--art wire` draws outlines, `hybrid` switches at
-  close range.
-- Radar: forward is up, bearing across, and the glyph tells you whether a
-  contact is above (`^`), below (`v`), level (`o`) or behind you (`x`).
-- Laser, missile lock, E.C.M., energy bomb, shields fore and aft, four energy
-  banks, and a hull that does not regenerate for free.
-- Fourteen ship types with roles: pirates in lawless space, police in
-democracies, traders, bounty hunters, Thargoids. Bounties are paid; killing
-clean ships makes you an Offender, and killing police makes you a Fugitive.
-- Ranks from Harmless to Elite (6400 kills), saved in your profile.
-
-## Trading and docking
+## Missions
 
 ```
  CORIOLIS  · LAVE           FUEL  7.0 LY  CR 100.0            CLEAN
  ──────────────────────────────────────────────────────────────────────────────
-  DOCKED · LAVE STATION       TECH  5   RICH AGRICULTURAL
-                                                ┌─ STATION SERVICES ─────────┐
-    Buy cargo                                   │ Economy     Rich Agr.      │
-    Sell cargo                                  │ Government  Feudal         │
-    Equipment                                   │ Tech level  5              │
-    Refuel tanks                                │ Population  2.0 bn         │
-    Repair hull                                 │                            │
-    Clear record                                │ Fuel        7.0 / 7.0 LY   │
-    Status                                      │ Hull        100%           │
-    Inventory                                   │ Cargo       0 / 20 t       │
-    Launch                                      │ Missiles    3 / 4          │
-    Save and quit                               │ Rank        Harmless       │
-                                                │ Record      Clean          │
-  ┌─ BEST HOP FROM HERE ─────────────────────┐  │                            │
-  │ Raer        5.9 LY Liquor/Wi  3t   +26   │  │                            │
-  │ Maesat      6.1 LY Slaves     7t   +26   │  │                            │
-  │ Maesat      6.1 LY Liquor/Wi  3t   +24   │  └────────────────────────────┘
-  │                                          │
-  └──────────────────────────────────────────┘
-
-  Arrows pick   ENTER select   ESC pause   ? controls
+  MISSION BOARD · LAVE            [OFFERS]    CR 100.0
+ ┌─ OPEN CONTRACTS ─────────────────────────┐ ┌─ CONTRACT ────────────────────┐
+ │  Freight: 6t Food to Beesri              │ │ Freight: 6t Food to Beesri    │
+ │  Freight: 8t Radioactives to Atbera      │ │                               │
+ │  Rescue: survivors adrift                │ │ To: Beesri                    │
+ │  Courier: sealed packet to Ques          │ │ 4.0 LY  tech 4  Poor Agr.     │
+ │                                          │ │ 1 jump(s), 4.0 LY by route    │
+ │                                          │ │ risk medium                   │
+ │                                          │ │ Pay: 250 CR                   │
+ │                                          │ │ Deadline: 180m 00s left       │
+ │                                          │ │ Cargo: 6t Food                │
+ │                                          │ │ hold: 20t free of 20t         │
+ │                                          │ │ Difficulty 1                  │
+ │                                          │ │                               │
+ │                                          │ │ Your first contract: carry    │
+ │                                          │ │ this freight to Beesri        │
+ │                                          │ │ station and dock there.       │
+ │                                          │ │                               │
+ │                                          │ │                               │
+ └──────────────────────────────────────────┘ └───────────────────────────────┘
+  Up/Down pick   ENTER accept   TAB journal   ESC back
+  Welcome, Commander. There is a contract on the board.
 ```
+
+Stations offer five kinds of contract: **freight** (cargo loaded and reserved on
+acceptance), **courier** (a sealed packet, no hold space), **escort** (a trader
+who must survive the trip), **rescue** (recover survivors adrift, then deliver
+them) and **bounty** (destroy a named wanted ship in a named system). Each shows
+its destination, pay, risk, difficulty, deadline and any cargo or hold
+requirement before you sign, and the journal (`4` in flight) tracks progress and
+time left. Deadlines run on the simulation clock, which only advances while you
+are flying, and rewards are paid exactly once. Abandoning a contract unloads
+the freight and pays nothing.
+
+## Trading, events and profit
 
 Prices follow the economy: goods a system produces are cheap there, goods it
 needs are dear. There is a 5% dealer spread each way and your own trading moves
 the price against you, so **buying and selling the same crate never makes
-money** - you have to actually fly somewhere.
+money**. Markets remember their stock between visits, so leaving and returning
+cannot refresh a shelf, and trade impact fades with time instead of resetting.
 
-The station screen shows the best hop from where you are, sized to your wallet
-and your hold, so the first ten minutes are not a guessing game: from Lave, a
-few tonnes of Liquor/Wines to Raer are worth about 26 credits on the first trip.
+The hold tracks what each tonne cost, so the market shows **realised profit**
+separately from revenue, per row as well as per visit. `M` buys the maximum the
+wallet, the hold and the shelf allow, or sells the lot. The station also lists
+the best hops from where you are, net of fuel, sized to your wallet, with the
+risk at the other end shown separately.
+
+Local **economic events** - shortages, construction booms, disrupted routes,
+gluts, festivals, medical emergencies - shift prices and stock for a few hours.
+They are generated from the world seed, saved with the game, and never reroll on
+docking.
+
+## Ships
 
 ```
  CORIOLIS  · LAVE           FUEL  7.0 LY  CR 100.0            CLEAN
  ──────────────────────────────────────────────────────────────────────────────
-  BUY · LAVE          CR 100.0            HOLD 0/20 t
-  GOOD                  PRICE    STOCK              ┌─ TRADE ────────────────┐
-   Food                      3.5     23             │ Food                   │
-   Textiles                  6.4     24             │ base 4.0 CR/t          │
-   Radioactives             25.9     15             │ legal cargo            │
-   Slaves                   13.8     32             │                        │
-   Liquor/Wines             24.8     28             │ QUANTITY 1             │
-   Luxuries                 91.7      0             │ COST 3.5 CR            │
-   Narcotics               117.6      0             │                        │
-   Computers               116.2      0             │                        │
-   Machinery                75.7      0             │                        │
-   Alloys                   43.2     16             └────────────────────────┘
-   Firearms                 88.4      0
-   Furs                     55.3     32
-   Minerals                 14.3     20
-   Gold                    396.4      0
-   Platinum                979.3      0
+  SHIPYARD · LAVE             CR 100.0          trade-in 1920 CR
+ ┌─ HULLS ON THE LOT ─────────────────────┐ ┌─ COMPARE ───────────────────────┐
+ │  Cobra Mk III  (yours)           !     │ │ NOW         Cobra Mk III        │
+ │  Adder                    3280 CR      │ │ Cargo           20t      20t    │
+ │  Moray Starboat           5480 CR      │ │ Speed           900      900    │
+ │  Fer-de-Lance            10580 CR      │ │ Accel           700      700    │
+ │  Asp Mk II               13880 CR      │ │ Turn           1.15     1.15    │
+ │                                        │ │ Shields         100      100    │
+ │                                        │ │ Hull            100      100    │
+ │                                        │ │ Missiles          4        4    │
+ │                                        │ │ Slots             8        8    │
+ │                                        │ │                                 │
+ │                                        │ │ Price     3200                  │
+ │                                        │ │ Trade        0                  │
+ │                                        │ │ Cost      3200 CR               │
+ │                                        │ │ The all-rounder: enough hold,   │
+ │                                        │ │ enough guns, enough speed.      │
+ └────────────────────────────────────────┘ └─────────────────────────────────┘
+  You already fly one of these
 
-
-
-  Up/Down pick   Left/Right qty   ENTER trade   ESC back
+  Up/Down pick   ENTER buy   S sell a missile   ESC back
 ```
 
-Docking is the game's skill check. The slot is the `=` bar on the Coriolis, and
-it rotates with the station. To get in you need to be within 140 m of the slot
-mouth, under 320 m/s, within 55 m laterally, and rolled to within 28 degrees of
-the slot. Crash into the hull and it costs you 45 points of ship. The 1500 CR
-docking computer flies the approach for you once you can afford it.
+Five hulls are for sale at tech 4 or better: the Cobra Mk III you start in, the
+Adder freighter, the Moray courier, the Fer-de-Lance warship and the Asp
+explorer. They differ in price, hold, top speed, acceleration, turn rate, hull,
+shields, missile racks and equipment slots, and those differences are what the
+flight model and the HUD use. The yard shows your ship beside the candidate with
+the trade-in and the final cost, and refuses a purchase that would not fit your
+cargo, your equipment, your missiles or your wallet. A trade-in never pays you
+money, so swapping hulls back and forth always costs.
 
-Hyperspace needs fuel (0.5 CR per light year, 7 LY tank) and is blocked while
-anything is close enough to mass-lock you. Buy fuel scoops and you can skim the
-sun for free fuel - at the cost of your hull.
+## Flying, fighting and docking
+
+- Real 3D: position, velocity along the nose, and an orientation matrix.
+  **Pitch and roll only, no yaw**, just like 1984.
+- The forward view is rasterised to text: starfield, ships, asteroids, the sun,
+  the planet and the station, depth-sorted so nearer things occlude further ones.
+- The docking instrument shows distance to the slot, lateral offset and which
+  side the slot is on, the signed roll error and which way to roll, speed
+  against the safe limit, and `CLEAR TO DOCK` when all four checks pass. The
+  docking computer is armed with `C`, only flies when armed and in range, says
+  why it cannot engage, and disarms itself after docking.
+- Radar: forward is up, bearing across, and the glyph tells you whether a
+  contact is above (`^`), below (`v`), level (`o`) or behind you (`x`).
+- **Pirates** intercept, demand cargo and only fire when refused - `J`
+  jettisons, and they scoop the drop and leave. **Police** scan for contraband,
+  fine and seize it, hunt fugitives, and patrol harder in lawful space.
+  **Traders** flee, call mayday and shed cargo. **Bounty hunters** only chase
+  pilots with a record. NPCs launch telegraphed missiles that home and hurt, so
+  `E` (ECM) has a job.
+- Wrecks leave salvage, asteroids can be mined with a mining laser (`N`) and
+  their fragments scooped; collecting needs fuel scoops, hold space and a sane
+  approach speed, and never counts as murder.
+- Ranks: combat (Harmless to Elite), **trade** (realised profit, Penniless to
+  Magnate) and **exploration** (unique systems, Lost to Cartographer), with the
+  next milestone shown on the status screen.
+
+## Station screen
+
+```
+ CORIOLIS  · LAVE           FUEL  7.0 LY  CR 100.0            CLEAN
+ ──────────────────────────────────────────────────────────────────────────────
+  PILOT STATUS
+
+   Commander       Jameson              EQUIPMENT
+   Ship            Cobra Mk III         nothing fitted
+   Rank            Harmless
+   Kills           0
+   Legal status    Clean
+   Credits         100.0 CR
+   Fuel            7.0 / 7.0 LY
+   Hull            100%
+   Cargo bay       0 / 20 t             TRADE
+   Missiles        3 / 4                Penniless
+   Laser           Pulse                250 CR to Peddler
+   Galaxy          1 / 10               EXPLORATION
+   Jumps           0                    Lost (1 systems)
+   Deaths          0                    2 more systems to Scout
+                                        BADGES
+                                        none yet
+
+
+  ESC back
+  Welcome, Commander. There is a contract on the board.
+```
 
 ## Controls
 
@@ -194,15 +261,20 @@ sun for free fuel - at the cost of your hull.
 | `,` `.` / arrows | roll left / right | menu up / down |
 | `A` `Z` | more / less speed | - |
 | `SPACE` | fire laser | - |
-| `T` / `M` | lock / fire missile | - |
+| `T` / `M` | lock / fire missile | (in the market) buy max / sell all |
 | `E` / `B` | E.C.M. / energy bomb | - |
 | `L` | level the roll | - |
-| `H` or `1` | galactic chart | - |
-| `2` / `3` | status / inventory | - |
-| `LEFT` `RIGHT` | - | trade quantity |
-| `ENTER` | - | select |
-| `ESC` | pause menu | pause menu |
+| `C` | dock computer on/off | - |
+| `J` / `N` / `R` | jettison / mine / recover | - |
+| `H` or `1` | chart (then `/` find, `P` route, `V` view, `M` mode) | - |
+| `2` / `3` / `4` | status / inventory / journal | - |
+| `LEFT` `RIGHT` | - | trade quantity (`[` `]` by ten) |
+| `ENTER` | - | select / trade |
+| `ESC` | pause menu | back one screen |
 | `?` | controls | controls |
+
+Escape is always "back": station submenus return to the station, pause resumes
+the screen it came from, help returns to whoever opened it.
 
 ## Bigger terminals
 
@@ -214,31 +286,43 @@ sun for free fuel - at the cost of your hull.
 
 
 
-                                        ---  /_______\
-                                        |+||/     |   \|
-                                        ---|   +       |
-                                           |   -=====+ |
-                                           |\         /|
+
+                                       +     /_______\
+                                           |/     |   \|
+                                           |           |
+                                           |   -=====- |     __
+                                           |\         /|     |__
                                              \_______/
 
 
-                                    .
-                                                .
+                                    .           .
 
 
+                                  .
  ──────────────────────────────────────────────────────────────────────────────────────────────────
   SPD ░░░░░░░░░░░░    0 m/s    FORE ██████████  AFT ██████████  HULL ████████
   E1 █████ E2 █████ E3 █████ E4 █████   MISSILES ●●●○   ---  ----  PULSE
  ──────────────────────────────────────────────────────────────────────────────────────────────────
- ┌─ RADAR ───────┐ ALERT Hyperspace to Raer in 3...
- │               │ TARGET Cobra Mk III 7.3 km
- │       o       │ DOCK 6.0 km  Slot 5860m ahead
- │       +       │ HYPER RAER in 3.0
- │               │
- │               │
+ ┌─ RADAR ───────┐ ALERT Launch. Fly toward the station slot to dock.
+ │               │ TARGET Sidewinder 1.8 km
+ │     o o       │ DOCK 6000m  lat 0m  roll +0  0/320
+ │       +       │ move toward the entrance
+ │               │ MASS LOCKED
  └───────────────┘
-  S/X pitch  ,/. roll  A/Z speed  SPC fire  T lock  M missile  E ECM  H chart  L level
+  S/X pitch  ,/. roll  A/Z speed  SPC fire  T lock  M missile  E ECM  H chart  4 journal
+  Welcome, Commander. There is a contract on the board.
 ```
+
+## Saves
+
+The run is saved when you dock and after station transactions, in
+`$XDG_DATA_HOME/coriolis/save.json`, written atomically with a unique temporary
+file. The format is version 2 and version 1 saves migrate automatically: they
+gain the Cobra hull, their cargo and equipment (including a large bay) and a
+clean progression slate. A damaged or newer save is never overwritten; the game
+says why it cannot use it, and any file it has to replace is kept as
+`save.json.bad`. The random state is saved too, so a seeded run continues
+exactly where it left off.
 
 ## Tests
 
@@ -246,25 +330,13 @@ sun for free fuel - at the cost of your hull.
 python3 -m unittest discover -s tests -t tests
 ```
 
-129 tests and no third-party runner: galaxy determinism and reachability, the
-mathematics of cameras and matrices, docking tolerances, damage order, market
-arbitrage, save/load and migrations, a full trade run, and every screen
-rendered headlessly at 80x24 and 100x32.
+301 tests and no third-party runner: galaxy determinism and reachability, the
+mathematics of cameras and matrices, docking tolerances and the instrument's
+guidance, damage order, market arbitrage and bulk pricing, mission completion,
+failure and duplicate rewards, ship purchases, NPC behaviour and steering,
+route validity and refuelling, event expiry and market persistence, finite
+mining, the tutorial, save migration, and every screen rendered headlessly at
+78x24, 80x24 and 100x32 in Unicode, ASCII and monochrome.
 
 `tools/render.py` runs the real `Game` class against a fake screen, so a layout
 regression shows up as a test failure instead of a broken terminal.
-
-## What is faithful, and what is not
-
-Faithful in spirit: seed-driven galaxies, pitch/roll only, the rotating slot,
-seven light years of fuel, the market model, the rank ladder, fore/aft shields,
-energy banks, mass lock, sun skimming, bounties and legal status.
-
-Deliberately different: the original had no save game, no mouse, and 8 galaxies;
-this has saves at stations, a resize-safe responsive layout, ten galaxies (with
-`GRAND MASTER` for anyone who loops all ten), and a modern default key map with
-`--classic` if you want the old one. The galaxy data comes from the same kind of
-algorithm but is not a bit-exact copy of the 1984 star charts.
-
-Not implemented yet: missions, the Constrictor, witchspace ambushes, cargo
-contracts, and the cloaking device.

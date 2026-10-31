@@ -12,7 +12,7 @@ what is charged.
 """
 
 import zlib
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from .data import GOODS
 

@@ -12,12 +12,13 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RENDER = os.path.join(ROOT, "tools", "render.py")
 
 SHOTS = {
-    "flight": ["--keys", "\\n~R~E", "--contacts", "2"],
-    "chart": ["--keys", "\\n"],
-    "docked": ["--keys", "\\n", "--start-docked"],
-    "buy": ["--keys", "\\n~E", "--start-docked"],
-    "flight100": ["--rows", "32", "--cols", "100", "--keys", "\\n~R~E",
-                  "--contacts", "3"],
+    "flight": ["--keys", "", "--goto", "launch", "--contacts", "2"],
+    "chart": ["--keys", "P", "--goto", "chart"],
+    "missions": ["--keys", "", "--goto", "missions"],
+    "shipyard": ["--keys", "~D", "--goto", "shipyard"],
+    "docked": ["--keys", "", "--goto", "status"],
+    "flight100": ["--rows", "32", "--cols", "100", "--keys", "",
+                  "--goto", "launch", "--contacts", "3"],
 }
 
 TEMPLATE = open(os.path.join(ROOT, "tools", "readme_template.md")).read()
