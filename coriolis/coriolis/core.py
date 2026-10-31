@@ -271,7 +271,7 @@ class GameState:
         self.missions = []      # Mission objects, alive for this run
         self.boards = {}        # "g:i" -> {offers, next}
         self.completed = []     # mission ids already paid
-        self.notes = []
+        self.jettison_count = 0  # how many times the hatch has been used
 
     # -- system ----------------------------------------------------------
     @property
@@ -326,6 +326,14 @@ class GameState:
         self.jump = None
         self.pilot.system = self.system.index
         self.say(f"Docked at {self.system.name} station.")
+        fines = float(self.pilot.intel.get("fines", 0.0) or 0.0)
+        if fines > 0:
+            paid = min(fines, max(0.0, self.pilot.credits))
+            self.pilot.credits = round(self.pilot.credits - paid, 1)
+            self.pilot.intel["fines"] = round(fines - paid, 1)
+            self.say(f"Fines of {paid:.0f} CR collected"
+                     + (" - the rest is still owed"
+                        if fines - paid > 0 else ""))
         for note in mission_mod.on_dock(self):
             self.say(note)
 
@@ -380,7 +388,8 @@ class GameState:
                 "banks": self.banks, "mode": self.mode,
                 "time": self.time,
                 "missions": [m.to_dict() for m in self.missions],
-                "boards": self.boards, "completed": self.completed}
+                "boards": self.boards, "completed": self.completed,
+                "jettison_count": self.jettison_count}
 
     def save(self, path=SAVE_PATH):
         write_json(path, self.to_dict())
@@ -423,6 +432,7 @@ class GameState:
                           for d in (data.get("missions") or [])]
         state.boards = dict(data.get("boards") or {})
         state.completed = list(data.get("completed") or [])
+        state.jettison_count = int(data.get("jettison_count", 0))
         state.market = Market.for_system(state.system)
         return state
 

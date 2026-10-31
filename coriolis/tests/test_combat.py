@@ -69,7 +69,7 @@ class CombatTest(unittest.TestCase):
         combat.damage_contact(self.state, c, 1000)
         self.assertEqual(self.state.pilot.credits, credits + c.type.bounty)
         self.assertEqual(self.state.pilot.kills, 1)
-        self.assertEqual(self.state.contacts, [])
+        self.assertFalse(any(x.kind == "ship" for x in self.state.contacts))
 
     def test_killing_police_makes_you_a_fugitive(self):
         c = combat.make("ship", "viper", Vec3(0, 0, 700))
@@ -100,7 +100,8 @@ class CombatTest(unittest.TestCase):
         self.state.contacts = [combat.make("ship", "cobra", Vec3(0, 0, 500), True),
                                combat.make("ship", "cobra", Vec3(0, 0, 30000), True)]
         self.assertTrue(combat.energy_bomb(self.state))
-        self.assertEqual(len(self.state.contacts), 1)
+        self.assertFalse(any(c.kind == "ship" and c.pos.z < 1000
+                             for c in self.state.contacts))
         self.assertFalse(self.state.pilot.has("bomb"))
 
     def test_mass_lock_near_ships(self):

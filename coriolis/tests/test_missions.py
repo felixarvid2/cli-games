@@ -147,9 +147,7 @@ class OtherKindsTest(unittest.TestCase):
         target = targets[0]
         target.shields = 0
         credits = state.pilot.credits
-        combat.damage_contact(state, target, 999)
-        notes = missions.on_kill(state, target)
-        self.assertTrue(notes)
+        combat.damage_contact(state, target, 999)   # kill() resolves the contract
         # The kill also pays the ship's own bounty; the contract pays once.
         paid_once = state.pilot.credits
         self.assertGreaterEqual(paid_once, credits + mission.pay - 0.1)

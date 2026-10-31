@@ -259,7 +259,6 @@ class Game:
 
     def step_sim(self, dt):
         state = self.state
-        state.time += dt
         f = state.flight
         # Speed is a wanted value, approached at the ship's acceleration.
         diff = self.target_speed - f.speed
@@ -851,6 +850,8 @@ class Game:
         elif key == "r":
             if not missions.recover(state):
                 state.say("Nothing to recover here")
+        elif key == "j":
+            combat.jettison(state)
 
     # -- docked -----------------------------------------------------------
     def docked_items(self):
