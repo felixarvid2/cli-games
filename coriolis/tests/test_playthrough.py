@@ -60,6 +60,7 @@ class PlaythroughTest(unittest.TestCase):
         for angle in (0.0, 0.9, 2.2):
             game, scr = support.make_game("\n", ["--seed", "1", "--start-docked"])
             game.state.pilot.equipment.add("docking")
+            game.state.pilot.intel["dock_computer"] = True
             game.state.station.angle = angle
             support.pick(game, "launch")
             game.state.station.angle = angle

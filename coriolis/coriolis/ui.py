@@ -279,7 +279,7 @@ class Game:
             self.toast_now(note, 2.5)
         state.station.step(dt)
         self.autodock = max(0.0, self.autodock - dt)
-        if state.pilot.has("docking"):
+        if self.computer_armed() and state.pilot.has("docking")                 and not self.computer_reason():
             self.auto_dock(dt)
         status, text = state.station.dock_check(f)
         if status == "dock":
@@ -288,6 +288,26 @@ class Game:
             self.crash(text)
         if state.dead:
             self.die()
+
+    def computer_armed(self):
+        return bool(self.state and self.state.pilot.intel.get("dock_computer"))
+
+    def computer_reason(self):
+        """Why the computer is idle; empty when it is flying the approach."""
+        state = self.state
+        if state is None:
+            return "no ship"
+        pilot = state.pilot
+        if not pilot.has("docking"):
+            return "docking computer not fitted"
+        if not self.computer_armed():
+            return "off - press C to arm"
+        if state.jump:
+            return "hyperspace in progress"
+        dist = (state.flight.pos - state.station.pos).length()
+        if dist > 3000:
+            return f"out of range: {dist / 1000.0:.0f} km, needs 3 km"
+        return ""
 
     def auto_dock(self, dt):
         """The docking computer: line up the mouth, roll with the slot, creep in."""
@@ -323,6 +343,7 @@ class Game:
         self.equip_sel = 0
         self.target_speed = 0.0
         self.axes = {"pitch": 0.0, "roll": 0.0}
+        state.pilot.intel["dock_computer"] = False
         state.save()
         self.has_save = True
 
@@ -644,8 +665,7 @@ class Game:
         self.header()
         vx, vy = 1, 2
         vw = max(20, self.w - 2)
-        radar_h = 5 if self.h >= 26 else 3
-        vh = max(6, self.h - 13 - (radar_h - 3))
+        vh = max(6, self.h - 14)
         cv, target = sketch.draw_scene(state, vw, vh, self.art, not self.utf)
         self.paint(cv, vy, vx)
         y = vy + vh
@@ -680,6 +700,7 @@ class Game:
         y += 1
         self.rule(y, "navy")
         y += 1
+        radar_h = max(2, min(5, self.h - y - 4))
         self.draw_radar(y, 2, 15, radar_h)
         self.draw_flight_status(y, 19, target)
         self.draw_flight_hints()
@@ -702,20 +723,18 @@ class Game:
                  self.C("red" if alert else "faint"))
         y += 1
         if target:
-            c, dist = target
-            label = f"{c.name} {dist / 1000.0:.1f} km"
-            colour = "red" if c.hostile else "green"
+            contact, dist = target
+            label = f"{contact.name} {dist / 1000.0:.1f} km"
+            colour = "red" if contact.hostile else "green"
             self.put(y, x, "TARGET", self.C("dim"))
             self.put(y, x + 7, V.cut(label, width - 7), self.C(colour))
         else:
             self.put(y, x, "TARGET", self.C("dim"))
             self.put(y, x + 7, "none in sight", self.C("faint"))
         y += 1
-        status, text = state.station.dock_check(state.flight)
-        dist = (state.flight.pos - state.station.pos).length()
-        self.put(y, x, "DOCK", self.C("dim"))
-        self.put(y, x + 5, V.cut(f"{dist / 1000.0:.1f} km  {text}", width - 5),
-                 self.C("green" if status == "dock" else "white"))
+        self.draw_dock_instrument(y, x, width)
+        y += 1
+        self.draw_dock_hints(y, x, width)
         y += 1
         if state.jump:
             self.put(y, x, "HYPER", self.C("dim"))
@@ -727,11 +746,52 @@ class Game:
         else:
             self.put(y, x, "HYPER DRIVE READY", self.C("faint"))
 
+    def draw_dock_instrument(self, y, x, width):
+        """Distance, lateral offset, roll error and speed, all in one line."""
+        state = self.state
+        info = state.station.dock_status(state.flight)
+        self.put(y, x, "DOCK", self.C("dim"))
+        if info["dist"] <= 0:
+            self.put(y, x + 5, "behind the station", self.C("amber"))
+            return
+        parts = [f"{info['dist']:.0f}m",
+                 f"lat {info['lateral']:.0f}m",
+                 f"roll {info['roll']:+.0f}",
+                 f"{info['speed']:.0f}/{info['max_speed']:.0f}"]
+        colour = "green" if info["status"] == "dock" else "white"
+        if info["status"] == "crash":
+            colour = "red"
+        self.put(y, x + 5, V.cut("  ".join(parts), width - 5), self.C(colour))
+
+    def draw_dock_hints(self, y, x, width):
+        state = self.state
+        info = state.station.dock_status(state.flight)
+        if info["status"] == "dock":
+            text = "CLEAR TO DOCK"
+            colour = "green"
+        elif info["status"] == "crash":
+            text = "COLLISION"
+            colour = "red"
+        else:
+            text = ", ".join(info["hints"][:2]) or "hold position"
+            colour = "amber"
+        self.put(y, x, V.cut(text, max(8, width - 18)), self.C(colour, True))
+        reason = self.computer_reason()
+        if state.pilot.has("docking"):
+            if not reason:
+                tag, colour = "AUTO:ON", "cyan"
+            elif self.computer_armed():
+                tag, colour = "AUTO:FAR", "amber"
+            else:
+                tag, colour = "AUTO:OFF", "faint"
+            self.put(y, max(x, self.w - len(tag) - 2), tag, self.C(colour))
+        self._computer_note = reason
+
     def draw_flight_hints(self):
         hints = (("S/X", "pitch"), (",/.", "roll"), ("A/Z", "speed"),
                  ("SPC", "fire"), ("T", "lock"), ("M", "missile"),
                  ("E", "ECM"), ("H", "chart"), ("4", "journal"),
-                 ("R", "recover"))
+                 ("R", "recover"), ("C", "auto-dock"), ("J", "jettison"))
         x = 2
         y = self.h - 2
         for key, label in hints:
@@ -771,6 +831,14 @@ class Game:
             combat.energy_bomb(state)
         elif key == "l":
             self.level_roll()
+        elif key == "c":
+            if not state.pilot.has("docking"):
+                self.toast_now("No docking computer fitted", 2.0)
+            else:
+                armed = not self.computer_armed()
+                state.pilot.intel["dock_computer"] = armed
+                self.toast_now("Docking computer armed" if armed
+                               else "Docking computer off", 2.0)
         elif key in ("h", "1"):
             self.chart_sel = state.pilot.system
             self.push("chart")
@@ -1528,6 +1596,9 @@ class Game:
             ("E", "ECM", "destroys missiles"),
             ("B", "energy bomb", "one shot"),
             ("L", "level the roll", "flight assist"),
+            ("C", "docking computer", "toggle on/off"),
+            ("4", "journal", "active contracts"),
+            ("R", "recover survivors", "within 100 m"),
             ("H / 1", "galactic chart", ""),
             ("2 / 3", "status / inventory", ""),
         ]

@@ -36,7 +36,7 @@ class DockingTest(unittest.TestCase):
         self.ship.speed = 100
         status, text = self.station.dock_check(self.ship)
         self.assertEqual(status, "wait")
-        self.assertIn("Lateral", text)
+        self.assertIn("centreline", text)
 
     def test_hitting_the_hull_is_a_crash(self):
         self.ship.pos = Vec3(0, 0, 300)

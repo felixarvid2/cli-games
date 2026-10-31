@@ -47,26 +47,72 @@ class Station:
             return math.pi / 2
         return flat.angle_to(slot_up)
 
-    def dock_check(self, flight):
-        """Return (status, text) where status is dock/crash/wait."""
+    def roll_signed(self, ship_up):
+        """Signed roll error in degrees; positive means roll left."""
+        slot_up = self.slot_vector()
+        axis = self.axis
+        up = Vec3(ship_up.x, ship_up.y, 0.0)
+        if up.length() < 1e-6:
+            return 90.0
+        up = up.norm()
+        flat = slot_up if slot_up.length() > 1e-6 else Vec3(0, 1, 0)
+        cross = up.cross(flat)
+        angle = math.atan2(cross.dot(axis), up.dot(flat))
+        return round(math.degrees(angle), 1)
+
+    def lateral_offset(self, rel):
+        """Metres to the station's right of the slot centreline."""
+        right = self.axis.cross(self.slot_vector()).norm()
+        return rel.dot(right)
+
+    def dock_status(self, flight):
+        """Everything the docking instrument and the rules need, in one place."""
         rel, axial, lateral = self.relative(flight.pos)
         dist = rel.length()
+        offset = self.lateral_offset(rel)
+        roll = self.roll_signed(flight.orient.up)
+        status = "wait"
+        text = ""
         if axial < -self.radius * 0.5:
-            return "crash", "You flew into the station's hull"
-        if axial < 0:
-            return "wait", "You are behind the station - turn around"
-        if dist < self.radius * 0.75 and lateral > SLOT_HALF_WIDTH:
-            return "crash", "The hull fills your view"
-        if lateral > SLOT_HALF_WIDTH:
-            return "wait", f"Lateral {lateral:.0f}m off the slot"
+            status, text = "crash", "You flew into the station's hull"
+        elif axial < 0:
+            text = "Behind the station - turn around"
+        elif dist < self.radius * 0.75 and lateral > SLOT_HALF_WIDTH:
+            status, text = "crash", "The hull fills your view"
+        elif lateral > SLOT_HALF_WIDTH:
+            text = f"{abs(offset):.0f} m off the slot centreline"
+        elif axial > DOCK_AXIAL:
+            text = f"Slot {axial - DOCK_AXIAL:.0f} m ahead"
+        elif flight.speed > DOCK_SPEED:
+            text = f"Too fast ({flight.speed:.0f} m/s)"
+        elif abs(roll) > math.degrees(DOCK_ROLL):
+            text = f"Roll {abs(roll):.0f} deg off the slot"
+        else:
+            status, text = "dock", "Docking clamps engaged"
+        hints = []
         if axial > DOCK_AXIAL:
-            return "wait", f"Slot {axial - DOCK_AXIAL:.0f}m ahead"
+            hints.append("move toward the entrance")
+        if lateral > SLOT_HALF_WIDTH * 0.5:
+            hints.append("slot to the left" if offset > 0 else "slot to the right")
+        if abs(roll) > math.degrees(DOCK_ROLL) * 0.6:
+            # Positive roll error means "roll right" with the player's keys.
+            hints.append("roll right" if roll > 0 else "roll left")
         if flight.speed > DOCK_SPEED:
-            return "wait", f"Too fast ({flight.speed:.0f} m/s)"
-        err = self.roll_error(flight.orient.up)
-        if err > DOCK_ROLL:
-            return "wait", f"Roll {math.degrees(err):.0f} deg off the slot"
-        return "dock", "Docking clamps engaged"
+            hints.append("reduce speed")
+        return {"status": status, "text": text,
+                "dist": round(axial, 1), "lateral": round(lateral, 1),
+                "offset": round(offset, 1), "roll": roll,
+                "speed": round(flight.speed, 1), "max_speed": DOCK_SPEED,
+                "ok": {"range": 0 < axial <= DOCK_AXIAL,
+                       "lateral": lateral <= SLOT_HALF_WIDTH,
+                       "speed": flight.speed <= DOCK_SPEED,
+                       "roll": abs(roll) <= math.degrees(DOCK_ROLL)},
+                "hints": hints}
+
+    def dock_check(self, flight):
+        """Return (status, text) where status is dock/crash/wait."""
+        info = self.dock_status(flight)
+        return info["status"], info["text"]
 
     def distance(self, pos):
         return (pos - self.pos).length()
