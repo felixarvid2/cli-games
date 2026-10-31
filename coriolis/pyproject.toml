@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "coriolis"
+version = "0.1.0"
+description = "An Elite-style space trading and combat game for the terminal"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "CORIOLIS contributors" }]
+keywords = ["game", "elite", "space", "trading", "combat", "terminal", "curses"]
+classifiers = [
+  "Environment :: Console :: Curses",
+  "Intended Audience :: End Users/Desktop",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Topic :: Games/Entertainment :: Simulation",
+]
+
+[project.scripts]
+coriolis = "coriolis.ui:main"
+
+[tool.setuptools]
+packages = ["coriolis"]
