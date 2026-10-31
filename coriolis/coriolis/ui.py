@@ -7,7 +7,7 @@ import os
 import sys
 import time
 
-from . import __version__, combat, galaxy, missions, sketch
+from . import __version__, combat, galaxy, missions, navigation, sketch
 from . import visuals as V
 from .core import (GameState, clear_save, load_profile, save_profile)
 from .data import GOOD_BY_KEY, MAX_FUEL, MAX_MISSILES, rank_for
@@ -39,7 +39,7 @@ def keyname(ch):
         return "left"
     if ch == curses.KEY_RIGHT:
         return "right"
-    if ch == curses.KEY_BACKSPACE:
+    if ch in (curses.KEY_BACKSPACE, 127, 8):
         return "backspace"
     if ch == 9:
         return "tab"
@@ -88,6 +88,13 @@ class Game:
         self.autodock = 0.0
         self.frames = 0
         self.pause_sel = 0
+        self.chart_view = 1
+        self.chart_mode = "short"
+        self.chart_target = None
+        self.chart_query = ""
+        self.chart_searching = False
+        self._route = None
+        self._route_key = None
         self.mission_tab = 0
         self.mission_sel = 0
         self.journal_sel = 0
@@ -480,13 +487,22 @@ class Game:
         self.rule(1)
 
     # -- chart ------------------------------------------------------------
-    def chart_geometry(self):
+    def chart_systems(self):
+        """The systems the chart is showing: the whole galaxy, or the area."""
         systems = galaxy.galaxy(self.state.pilot.galaxy)
+        if self.chart_view:
+            return systems
+        here = self.state.system
+        near = [s for s in systems if galaxy.distance(here, s) <= 30.0]
+        return near or systems
+
+    def chart_geometry(self):
+        systems = self.chart_systems()
         minx, miny, maxx, maxy = galaxy.chart_bounds(systems)
+        spanx = max(3.0, maxx - minx)
+        spany = max(3.0, maxy - miny)
         map_x0, map_y0 = 2, 4
         map_w, map_h = max(20, self.w - 36), max(8, self.h - 9)
-        spanx = max(1e-6, maxx - minx)
-        spany = max(1e-6, maxy - miny)
         return systems, (map_x0, map_y0, map_w, map_h, minx, miny, spanx, spany)
 
     def chart_pos(self, system, geo):
@@ -495,6 +511,21 @@ class Game:
         py = y0 + int(round((1.0 - (system.y - miny) / spany) * (h - 1)))
         return px, py
 
+    def chart_route(self):
+        """The planned route, cached so the chart does not re-run Dijkstra."""
+        state = self.state
+        if self.chart_target is None:
+            return None
+        key = (state.pilot.galaxy, state.pilot.system, self.chart_target,
+               self.chart_mode, round(state.pilot.fuel, 1))
+        if self._route_key != key:
+            self._route = navigation.plan(state.pilot.galaxy, state.pilot.system,
+                                         self.chart_target,
+                                         fuel=state.pilot.fuel,
+                                         mode=self.chart_mode)
+            self._route_key = key
+        return self._route
+
     def draw_chart(self):
         state = self.state
         systems, geo = self.chart_geometry()
@@ -502,39 +533,61 @@ class Game:
         here = state.system
         target = galaxy.system(state.pilot.galaxy, self.chart_sel)
         dist = galaxy.distance(here, target)
+        route = self.chart_route()
         self.header()
-        self.put(2, 2, f"GALACTIC CHART {state.pilot.galaxy:2d}/{galaxy.GALAXY_COUNT}",
+        self.put(2, 2, f"CHART {state.pilot.galaxy:2d}/{galaxy.GALAXY_COUNT}",
                  self.C("cyan", True))
-        self.put(2, 24, f"{here.name.upper()}  {self.g['arrow']}  {target.name.upper()}"
-                         f"   {dist:.1f} LY", self.C("white"))
+        self.put(2, 16, "[GALAXY]" if self.chart_view else "[LOCAL ]",
+                 self.C("white"))
+        self.put(2, 26, "[SHORT]" if self.chart_mode == "short" else "[SAFE ]",
+                 self.C("white"))
+        self.put(2, 35, f"{here.name.upper()}  {self.g['arrow']}  "
+                         f"{target.name.upper()}  {dist:.1f} LY", self.C("white"))
         self.box(y0 - 1, x0 - 1, h + 2, w + 2, "navy")
-        reach = set()
-        for d, s in galaxy.neighbours(state.pilot.galaxy, here.index):
-            reach.add(s.index)
+        reach = {s.index for _, s in galaxy.neighbours(state.pilot.galaxy,
+                                                       here.index)}
+        route_set = set(route.path[1:]) if route and route.ok else set()
         for s in systems:
             px, py = self.chart_pos(s, geo)
             if s.index == here.index:
                 self.put(py, px, "@", self.C("gold", True))
-            elif s.index == target.index:
-                self.put(py, px, self.g["cursor"], self.C("white", True) | curses.A_REVERSE)
+            elif s.index == self.chart_sel:
+                self.put(py, px, "X", self.C("white", True) | curses.A_REVERSE)
+            elif s.index in route_set:
+                nxt = route.next_hop == s.index
+                self.put(py, px, ">" if nxt else "o",
+                         self.C("teal", nxt))
             elif s.index in reach:
                 self.put(py, px, self.g["disc"], self.C("green"))
             else:
                 self.put(py, px, self.g["dot"], self.C("faint"))
-        # A line to the selected system when it is inside one tank.
-        if dist <= state.pilot.fuel + 1e-6 and target.index != here.index:
-            ax, ay = self.chart_pos(here, geo)
-            bx, by = self.chart_pos(target, geo)
-            steps = max(abs(bx - ax), abs(by - ay))
-            for i in range(1, steps):
-                px = ax + round((bx - ax) * i / steps)
-                py = ay + round((by - ay) * i / steps)
-                if 0 <= px < self.w and 0 <= py < self.h:
-                    self.put(py, px, self.g["dot"], self.C("teal"))
+        if route and route.ok:
+            for a, b in zip(route.path, route.path[1:]):
+                self.chart_line(galaxy.system(state.pilot.galaxy, a),
+                                galaxy.system(state.pilot.galaxy, b), geo)
+        elif dist <= state.pilot.fuel + 1e-6 and target.index != here.index:
+            self.chart_line(here, target, geo)
         self.draw_chart_labels(systems, geo, here, target, reach, x0, y0, w, h)
-        self.draw_chart_panel(target, dist)
-        self.put(self.h - 2, 2, "Arrows pick   ENTER/H jump   ESC pause   ? controls",
-                 self.C("dim"))
+        self.draw_chart_panel(target, dist, route)
+        if self.chart_searching or self.chart_query:
+            self.put(3, 2, "FIND " + self.chart_query + ("_" if self.chart_searching else ""),
+                     self.C("gold", True))
+            matches = navigation.search(state.pilot.galaxy, self.chart_query)
+            if matches and self.chart_searching:
+                self.put(3, 3 + len(self.chart_query) + 6,
+                         "-> " + matches[0].name, self.C("dim"))
+        hints = "Arrows pick  / find  P route  V view  M mode  N missions  T trade  ENTER jump"
+        self.put(self.h - 2, 2, V.cut(hints, self.w - 4), self.C("dim"))
+
+    def chart_line(self, a, b, geo):
+        ax, ay = self.chart_pos(a, geo)
+        bx, by = self.chart_pos(b, geo)
+        steps = max(abs(bx - ax), abs(by - ay))
+        for i in range(1, steps):
+            px = ax + round((bx - ax) * i / steps)
+            py = ay + round((by - ay) * i / steps)
+            if 0 <= px < self.w and 0 <= py < self.h:
+                self.put(py, px, self.g["dot"], self.C("teal"))
 
     def draw_chart_labels(self, systems, geo, here, target, reach, x0, y0, w, h):
         placed = []
@@ -544,8 +597,8 @@ class Game:
             lx = min(max(x0 + 1, px + 1), x0 + w - len(label) - 1)
             ly = min(max(y0 + 1, py), y0 + h - 2)
             box = (lx, ly, lx + len(label))
-            clash = any(not (box[2] + 1 < p[0] or box[0] > p[2] + 1) and abs(ly - p[1]) <= 1
-                        for p in placed)
+            clash = any(not (box[2] + 1 < p[0] or box[0] > p[2] + 1)
+                        and abs(ly - p[1]) <= 1 for p in placed)
             if clash and s is target:
                 ly = min(y0 + h - 2, ly + 2)
                 lx = max(x0 + 1, lx - 4)
@@ -553,18 +606,14 @@ class Game:
             if clash and s is here:
                 continue
             placed.append((lx, ly, lx + len(label)))
-            if s.index == here.index:
-                colour = "gold"
-            else:
-                colour = "white"
+            colour = "gold" if s.index == here.index else "white"
             self.put(ly, lx, label, self.C(colour, s.index == target.index))
 
-    def draw_chart_panel(self, target, dist):
+    def draw_chart_panel(self, target, dist, route=None):
         pw = 32
         px = self.w - pw - 1
         py = 3
-        ph = min(16, self.h - 9)
-        fuel_ok = dist <= self.state.pilot.fuel + 1e-6
+        ph = min(18, self.h - 8)
         self.box(py, px, ph, pw, "cyan", target.name.upper())
         rows = [
             ("Economy", target.economy_short),
@@ -576,38 +625,138 @@ class Game:
             ("", ""),
             ("Distance", f"{dist:.1f} LY"),
             ("Fuel cost", f"{dist:.1f} / {self.state.pilot.fuel:.1f} LY"),
-            ("", ""),
         ]
         y = py + 1
         for label, value in rows:
             if label:
                 self.put(y, px + 2, V.cut(label, 12), self.C("dim"))
-                self.put(y, px + 15, V.cut(value, pw - 16), self.C("white"))
+                self.put(y, px + 15, V.cut(value, pw - 17), self.C("white"))
             y += 1
-        if target.index == self.state.system.index:
-            note, colour = "YOU ARE HERE", "gold"
-        elif fuel_ok:
-            note, colour = "IN RANGE - ENTER TO JUMP", "green"
-        else:
-            note, colour = "OUT OF RANGE - REFUEL", "red"
+        route = route if route is not None else self.chart_route()
+        if route is not None:
+            y += 1
+            if route.ok and route.next_hop is not None:
+                nxt = galaxy.system(self.state.pilot.galaxy, route.next_hop)
+                self.put(y, px + 2, "ROUTE", self.C("cyan", True))
+                self.put(y + 1, px + 2, V.cut(f"next {nxt.name}", pw - 4),
+                         self.C("white"))
+                self.put(y + 2, px + 2, V.cut(f"{route.jumps} jumps, "
+                                              f"{route.total:.1f} LY", pw - 4),
+                         self.C("dim"))
+                fuel = f"fuel {route.fuel_cost:.1f} CR"
+                if route.refuel_at:
+                    stop = galaxy.system(self.state.pilot.galaxy,
+                                         route.refuel_at[0])
+                    fuel = f"refuel at {stop.name}"
+                self.put(y + 3, px + 2, V.cut(fuel, pw - 4), self.C("amber"))
+            else:
+                for i, line in enumerate(V.wrap(route.reason, pw - 4)[:3]):
+                    self.put(y + i, px + 2, line, self.C("red"))
+        note = ("YOU ARE HERE" if target.index == self.state.system.index else
+                ("IN RANGE - ENTER TO JUMP" if dist <= self.state.pilot.fuel + 1e-6
+                 else "OUT OF RANGE - PLAN A ROUTE"))
+        colour = "gold" if target.index == self.state.system.index else (
+            "green" if dist <= self.state.pilot.fuel + 1e-6 else "red")
         self.put(py + ph - 2, px + 2, V.cut(note, pw - 4), self.C(colour, True))
+
+    def chart_jump_target(self):
+        """The next hop of the route if one is planned, else the selection."""
+        route = self.chart_route()
+        if route and route.ok and route.next_hop is not None:
+            return route.next_hop
+        return self.chart_sel
+
+    def try_jump(self, index):
+        state = self.state
+        if index == state.pilot.system:
+            self.toast_now("Choose another system first")
+            return False
+        if state.begin_jump(index):
+            if self.parent == "flight":
+                self.back()
+            else:
+                self.go("flight")
+            self.target_speed = 0.0
+            self.axes = {"pitch": 0.0, "roll": 0.0}
+            return True
+        self.toast_now(state.alert or "Cannot jump")
+        return False
+
+    def chart_goto_name(self, name):
+        for s in galaxy.galaxy(self.state.pilot.galaxy):
+            if s.name.lower() == name.lower():
+                self.chart_sel = s.index
+                return True
+        return False
+
+    def chart_cycle(self, systems):
+        """Walk through a list of interesting systems (missions, trade)."""
+        if not systems:
+            self.toast_now("Nothing to show")
+            return
+        indexes = [s.index for s in systems]
+        try:
+            at = indexes.index(self.chart_sel)
+            self.chart_sel = indexes[(at + 1) % len(indexes)]
+        except ValueError:
+            self.chart_sel = indexes[0]
 
     def key_chart(self, key):
         state = self.state
-        systems = galaxy.galaxy(state.pilot.galaxy)
-        if key in ("enter", "h", " "):
-            if self.chart_sel == state.pilot.system:
-                self.toast_now("Choose another system first")
+        if self.chart_searching:
+            if key == "enter":
+                self.chart_searching = False
+                matches = navigation.search(state.pilot.galaxy, self.chart_query)
+                if matches:
+                    self.chart_sel = matches[0].index
                 return
-            if state.begin_jump(self.chart_sel):
-                if self.parent == "flight":
-                    self.back()
-                else:
-                    self.go("flight")
-                self.target_speed = 0.0
-                self.axes = {"pitch": 0.0, "roll": 0.0}
-            else:
-                self.toast_now(state.alert or "Cannot jump")
+            if key == "esc":
+                self.chart_searching = False
+                self.chart_query = ""
+                return
+            if key == "backspace":
+                self.chart_query = self.chart_query[:-1]
+                return
+            if len(key) == 1 and (key.isalnum() or key in " .-'"):
+                self.chart_query += key
+                matches = navigation.search(state.pilot.galaxy, self.chart_query)
+                if matches:
+                    self.chart_sel = matches[0].index
+            return
+        if key == "/":
+            self.chart_searching = True
+            self.chart_query = ""
+            return
+        if key == "v":
+            self.chart_view = 0 if self.chart_view else 1
+            self._route_key = None
+            return
+        if key == "m":
+            self.chart_mode = "safe" if self.chart_mode == "short" else "short"
+            self._route_key = None
+            return
+        if key == "p":
+            self.chart_target = self.chart_sel
+            self._route_key = None
+            route = self.chart_route()
+            if route is not None and route.ok:
+                self.toast_now(f"Route: {route.jumps} jumps, {route.total:.1f} LY")
+            elif route is not None:
+                self.toast_now(route.reason or "No route")
+            return
+        if key == "n":
+            dests = [galaxy.system(m.dest_tuple[0], m.dest_tuple[1])
+                     for m in missions.active(state) if m.dest]
+            self.chart_cycle(dests)
+            return
+        if key == "t":
+            from .market import best_routes
+            rows = best_routes(state.system, galaxy.galaxy(state.pilot.galaxy),
+                               state.pilot)
+            self.chart_cycle([row[1] for row in rows])
+            return
+        if key in ("enter", "h", " "):
+            self.try_jump(self.chart_jump_target())
             return
         if key not in ("up", "down", "left", "right"):
             return
@@ -615,7 +764,7 @@ class Game:
         dx = {"left": -1, "right": 1}.get(key, 0)
         dy = {"down": -1, "up": 1}.get(key, 0)
         best = None
-        for s in systems:
+        for s in self.chart_systems():
             if s.index == here.index:
                 continue
             vx, vy = s.x - here.x, s.y - here.y

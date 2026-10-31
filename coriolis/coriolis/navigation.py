@@ -27,7 +27,8 @@ class Route:
 
     @property
     def ok(self):
-        return bool(self.path) and self.path[-1] == self.target
+        """A usable route: at least one jump, ending where we asked."""
+        return len(self.path) > 1 and self.path[-1] == self.target
 
     @property
     def jumps(self):
