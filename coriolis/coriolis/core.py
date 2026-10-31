@@ -385,6 +385,14 @@ class GameState:
     def save(self, path=SAVE_PATH):
         write_json(path, self.to_dict())
 
+    def apply_ship(self, repair=True):
+        """Re-fit the flight model and the hull limits to the current ship."""
+        cfg = self.pilot.ship_cfg
+        self.flight.apply_ship(cfg)
+        self.hull = self.hull_max if repair else min(self.hull, self.hull_max)
+        self.shields = {"fore": self.shield_max, "aft": self.shield_max}
+        self.pilot.missiles = min(self.pilot.missiles, cfg.missiles)
+
     def save_after_trade(self):
         """Keep the on-disk save in step after a station transaction."""
         if self.mode != "docked":
@@ -438,14 +446,27 @@ def read_json(path):
 
 
 def write_json(path, payload):
-    """Atomic write: a half-written save must never replace a good one."""
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump(payload, fh, indent=1, sort_keys=True)
-        fh.flush()
-        os.fsync(fh.fileno())
-    os.replace(tmp, path)
+    """Atomic write: a half-written save must never replace a good one.
+
+    The temporary file is unique per process, so two copies of the game (or a
+    screenshot run next to a real session) cannot clobber each other's save.
+    """
+    folder = os.path.dirname(path)
+    if folder:
+        os.makedirs(folder, exist_ok=True)
+    tmp = f"{path}.{os.getpid()}.tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh, indent=1, sort_keys=True)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
 
 
 def load_profile(path=PROFILE_PATH):

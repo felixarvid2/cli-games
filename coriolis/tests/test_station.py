@@ -123,10 +123,10 @@ class ServicesTest(unittest.TestCase):
         self.assertFalse(st.fine(self.pilot)[0])
 
     def test_shop_is_gated_by_tech_level(self):
-        low = st.equipment_rows(self.pilot, 1)
-        high = st.equipment_rows(self.pilot, 15)
+        low = [row for row in st.equipment_rows(self.pilot, 1) if not row[4]]
+        high = [row for row in st.equipment_rows(self.pilot, 15) if not row[4]]
         self.assertLess(len(low), len(high))
-        self.assertTrue(all(EQUIPMENT_BY_KEY[k].tech <= 1 for k, _, _, _ in low))
+        self.assertTrue(all(EQUIPMENT_BY_KEY[row[0]].tech <= 1 for row in low))
 
     def test_buying_a_missile_adds_one(self):
         self.pilot.credits = 100.0

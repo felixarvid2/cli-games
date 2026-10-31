@@ -91,6 +91,7 @@ class Game:
         self.mission_tab = 0
         self.mission_sel = 0
         self.journal_sel = 0
+        self.yard_sel = 0
 
     # -- colours ---------------------------------------------------------
     def init_colours(self, enabled=True):
@@ -793,6 +794,8 @@ class Game:
                  ("repair", "Repair hull"), ("fine", "Clear record"),
                  ("status", "Status"), ("inventory", "Inventory"),
                  ("journal", "Journal")]
+        if st.has_shipyard(state.system):
+            items.insert(4, ("shipyard", "Shipyard"))
         if state.pilot.has("galactic"):
             items.append(("galactic", "Galactic hyperdrive"))
         items += [("launch", "Launch"), ("save", "Save and quit")]
@@ -890,6 +893,10 @@ class Game:
     def do_equip(self):
         self.equip_sel = 0
         self.push("equip")
+
+    def do_shipyard(self):
+        self.yard_sel = 0
+        self.push("shipyard")
 
     def do_missions(self):
         self.mission_tab = 0
@@ -1285,34 +1292,146 @@ class Game:
         if key in ("esc", "q", "enter", "4"):
             self.back()
 
+    # -- shipyard ----------------------------------------------------------
+    def draw_shipyard(self):
+        state = self.state
+        pilot = state.pilot
+        self.header()
+        self.put(2, 2, f"SHIPYARD {self.g['dot']} {state.system.name.upper()}",
+                 self.C("gold", True))
+        self.put(2, 30, f"CR {V.money(pilot.credits)}", self.C("gold"))
+        self.put(2, 48, f"trade-in {st.trade_in_value(pilot):.0f} CR",
+                 self.C("cyan"))
+        rows = st.shipyard_rows(pilot)
+        self.yard_sel = max(0, min(self.yard_sel, len(rows) - 1))
+        self.box(3, 1, self.h - 7, 42, "navy", "HULLS ON THE LOT")
+        for i, (key, cfg, trade, cost, ok, why) in enumerate(rows):
+            y = 4 + i
+            selected = i == self.yard_sel
+            own = key == pilot.ship
+            attr = (self.C("gold", True) | curses.A_REVERSE if selected
+                    else self.C("white"))
+            label = cfg.name + ("  (yours)" if own else "")
+            self.put(y, 3, f" {V.cut(label, 22):<22}", attr)
+            if not own:
+                colour = "green" if ok else "faint"
+                self.put(y, 26, f"{cost:7.0f} CR",
+                         self.C(colour) if not selected else attr)
+            if selected and why:
+                self.put(y, 36, "!", self.C("amber"))
+        self.draw_ship_compare(rows[self.yard_sel])
+        if rows[self.yard_sel][5]:
+            self.put(self.h - 4, 2, V.cut(rows[self.yard_sel][5], self.w - 4),
+                     self.C("amber"))
+        self.put(self.h - 2, 2,
+                 "Up/Down pick   ENTER buy   S sell a missile   ESC back",
+                 self.C("dim"))
+
+    def draw_ship_compare(self, row):
+        state = self.state
+        pilot = state.pilot
+        key, cfg, trade, cost, ok, why = row
+        now = pilot.ship_cfg
+        px = 44
+        pw = max(30, self.w - px - 1)
+        self.box(3, px, self.h - 7, pw, "cyan", "COMPARE")
+        self.put(4, px + 2, "NOW", self.C("dim"))
+        self.put(4, px + 14, V.cut(cfg.name, 14), self.C("white", True))
+        fields = [("Cargo", f"{now.cargo + (15 if pilot.has('largebay') else 0)}t",
+                   f"{cfg.cargo + (15 if pilot.has('largebay') else 0)}t",
+                   cfg.cargo + (15 if pilot.has('largebay') else 0)
+                   - now.cargo - (15 if pilot.has('largebay') else 0)),
+                  ("Speed", f"{now.max_speed:.0f}", f"{cfg.max_speed:.0f}",
+                   cfg.max_speed - now.max_speed),
+                  ("Accel", f"{now.accel:.0f}", f"{cfg.accel:.0f}",
+                   cfg.accel - now.accel),
+                  ("Turn", f"{now.pitch_rate:.2f}", f"{cfg.pitch_rate:.2f}",
+                   cfg.pitch_rate - now.pitch_rate),
+                  ("Shields", f"{now.shields:.0f}", f"{cfg.shields:.0f}",
+                   cfg.shields - now.shields),
+                  ("Hull", f"{now.hull:.0f}", f"{cfg.hull:.0f}",
+                   cfg.hull - now.hull),
+                  ("Missiles", str(now.missiles), str(cfg.missiles),
+                   cfg.missiles - now.missiles),
+                  ("Slots", str(now.slots), str(cfg.slots),
+                   cfg.slots - now.slots)]
+        y = 5
+        for label, before, after, delta in fields:
+            self.put(y, px + 2, V.cut(label, 10), self.C("dim"))
+            self.put(y, px + 13, f"{before:>8}", self.C("white"))
+            colour = "faint" if delta == 0 else ("green" if delta > 0 else "red")
+            self.put(y, px + 22, f"{after:>8}", self.C(colour))
+            y += 1
+        y += 1
+        self.put(y, px + 2, f"Price {cfg.price:8.0f}", self.C("white"))
+        self.put(y + 1, px + 2, f"Trade {trade:8.0f}", self.C("cyan"))
+        self.put(y + 2, px + 2, f"Cost  {cost:8.0f} CR",
+                 self.C("green" if ok else "red", True))
+        for i, line in enumerate(V.wrap(cfg.blurb, pw - 4)[:3]):
+            if y + 3 + i < self.h - 5:
+                self.put(y + 3 + i, px + 2, line, self.C("dim"))
+
+    def key_shipyard(self, key):
+        state = self.state
+        rows = st.shipyard_rows(state.pilot)
+        if key in ("up", "w", "k"):
+            self.yard_sel = max(0, self.yard_sel - 1)
+        elif key in ("down", "s", "j"):
+            self.yard_sel = min(len(rows) - 1, self.yard_sel + 1)
+        elif key in ("enter", " "):
+            ok, msg = st.buy_ship(state.pilot, rows[self.yard_sel][0])
+            if ok:
+                state.apply_ship(repair=True)
+                state.save_after_trade()
+            self.toast_now(msg, 2.4)
+        elif key == "s":
+            ok, msg = st.sell_missile(state.pilot)
+            self.toast_now(msg, 1.8)
+        elif key in ("esc", "q"):
+            self.back()
+
     # -- equipment --------------------------------------------------------
     def draw_equip(self):
         state = self.state
+        pilot = state.pilot
         self.header()
         self.put(2, 2, f"EQUIPMENT {self.g['dot']} {state.system.name.upper()}",
                  self.C("gold", True))
-        self.put(2, 30, f"CR {V.money(state.pilot.credits)}", self.C("gold"))
-        rows = st.equipment_rows(state.pilot, state.system.tech)
+        self.put(2, 30, f"CR {V.money(pilot.credits)}", self.C("gold"))
+        self.put(2, 52, f"SLOTS {len(pilot.equipment)}/{pilot.slots}",
+                 self.C("cyan"))
+        rows = st.equipment_rows(pilot, state.system.tech)
         self.put(3, 2, "ITEM", self.C("dim"))
         self.put(3, 30, "PRICE", self.C("dim"))
         self.equip_sel = max(0, min(self.equip_sel, max(0, len(rows) - 1)))
         visible = max(3, self.h - 10)
         top = max(0, self.equip_sel - visible + 1)
-        for i, (key, name, price, desc) in enumerate(rows[top:top + visible]):
+        for i, (key, name, price, desc, why) in enumerate(rows[top:top + visible]):
             idx = i + top
             y = 4 + i
-            attr = self.C("gold", True) | curses.A_REVERSE if idx == self.equip_sel else self.C("white")
+            selected = idx == self.equip_sel
+            attr = (self.C("gold", True) | curses.A_REVERSE if selected
+                    else (self.C("white") if not why else self.C("faint")))
             self.put(y, 2, f" {V.cut(name, 26):<26}", attr)
-            self.put(y, 30, f"{price:8.0f}", self.C("cyan") if idx != self.equip_sel else attr)
-        if not rows:
-            self.put(5, 3, "This station has nothing left to sell you.", self.C("faint"))
+            self.put(y, 30, f"{price:8.0f}",
+                     (self.C("cyan") if not why else self.C("faint"))
+                     if not selected else attr)
+            if why:
+                self.put(y, 41, V.cut(why, 30), self.C("amber"))
         if rows:
-            _, name, price, desc = rows[self.equip_sel]
+            _, name, price, desc, why = rows[self.equip_sel]
             self.put(self.h - 4, 2, V.cut(desc, self.w - 4), self.C("dim"))
-        self.put(self.h - 2, 2, "Up/Down pick   ENTER buy   ESC back", self.C("dim"))
+            if name in pilot.equipment:
+                self.put(self.h - 3, 2,
+                         f"Fitted. S sells {name} for "
+                         f"{price * st.MISSILE_RESALE:.0f} CR.",
+                         self.C("dim"))
+        self.put(self.h - 2, 2, "Up/Down pick   ENTER buy   S sell fitted   ESC back",
+                 self.C("dim"))
 
     def key_equip(self, key):
-        rows = st.equipment_rows(self.state.pilot, self.state.system.tech)
+        state = self.state
+        rows = st.equipment_rows(state.pilot, state.system.tech)
         if not rows:
             if key in ("esc", "q"):
                 self.back()
@@ -1322,8 +1441,15 @@ class Game:
         elif key in ("down", "s", "j"):
             self.equip_sel = min(len(rows) - 1, self.equip_sel + 1)
         elif key in ("enter", " "):
-            ok, msg = st.buy(self.state.pilot, rows[self.equip_sel][0],
-                             self.state.system.tech)
+            ok, msg = st.buy(state.pilot, rows[self.equip_sel][0],
+                             state.system.tech)
+            if ok:
+                state.save_after_trade()
+            self.toast_now(msg, 1.8)
+        elif key == "s":
+            ok, msg = st.sell_equipment(state.pilot, rows[self.equip_sel][0])
+            if ok:
+                state.save_after_trade()
             self.toast_now(msg, 1.8)
         elif key in ("esc", "q"):
             self.back()
@@ -1334,7 +1460,8 @@ class Game:
         p = state.pilot
         self.header()
         self.put(2, 2, "PILOT STATUS", self.C("gold", True))
-        rows = [("Commander", p.name), ("Rank", p.rank), ("Kills", str(p.kills)),
+        rows = [("Commander", p.name), ("Ship", p.ship_name),
+                ("Rank", p.rank), ("Kills", str(p.kills)),
                 ("Legal status", p.legal_name), ("Credits", f"{V.money(p.credits)} CR"),
                 ("Fuel", f"{p.fuel:.1f} / {MAX_FUEL:.1f} LY"),
                 ("Hull", f"{max(0, state.hull):.0f}%"),

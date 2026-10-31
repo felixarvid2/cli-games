@@ -114,17 +114,7 @@ def fine(pilot):
 
 
 def available(pilot, item, tech):
-    if item.tech > tech:
-        return False
-    if item.key in ("missile",):
-        return pilot.missiles < MAX_MISSILES
-    if item.key in ("largebay",):
-        return "largebay" not in pilot.equipment
-    if item.key in ("beam", "military"):
-        tier = pilot.laser
-        order = {"pulse": 0, "beam": 1, "military": 2}
-        return order[item.key] > order[tier]
-    return item.key not in pilot.equipment
+    return why_not(pilot, item, tech) == ""
 
 
 def buy(pilot, key, tech):
@@ -146,9 +136,123 @@ def buy(pilot, key, tech):
 
 
 def equipment_rows(pilot, tech):
-    """(key, name, price, note) for the shop screen."""
+    """(key, name, price, note, why) for the shop screen."""
     rows = []
     for item in EQUIPMENT:
-        if available(pilot, item, tech):
-            rows.append((item.key, item.name, item.price, item.desc))
+        why = why_not(pilot, item, tech)
+        rows.append((item.key, item.name, item.price, item.desc, why))
     return rows
+
+
+# -- shipyard --------------------------------------------------------------
+
+SHIPYARD_TECH = 4          # only the better yards sell hulls
+MISSILE_RESALE = 0.5
+
+
+def has_shipyard(system):
+    return system.tech >= SHIPYARD_TECH
+
+
+def trade_in_value(pilot):
+    from .ships import TRADE_IN, player_ship
+    return round(player_ship(pilot.ship).price * TRADE_IN, 1)
+
+
+def shipyard_rows(pilot):
+    """(key, cfg, trade_in, cost, can_buy, why) for every hull on the lot."""
+    from .ships import PLAYER_SHIPS, SHIP_ORDER
+    rows = []
+    trade = trade_in_value(pilot)
+    for key in SHIP_ORDER:
+        cfg = PLAYER_SHIPS[key]
+        own = key == pilot.ship
+        cost = round(max(0.0, cfg.price - (0 if own else trade)), 1)
+        ok, why = can_buy_ship(pilot, key)
+        rows.append((key, cfg, 0 if own else trade, cost, ok, why))
+    return rows
+
+
+def can_buy_ship(pilot, key):
+    """Validate a purchase against cargo, equipment, missiles and credits."""
+    from .ships import PLAYER_SHIPS, LARGE_BAY_BONUS, TRADE_IN, player_ship
+    cfg = PLAYER_SHIPS.get(key)
+    if cfg is None:
+        return False, "No such ship"
+    if key == pilot.ship:
+        return False, "You already fly one of these"
+    cost = round(max(0.0, cfg.price - player_ship(pilot.ship).price * TRADE_IN), 1)
+    if cost > pilot.credits + 1e-9:
+        return False, f"Needs {cost:.0f} CR"
+    capacity = cfg.cargo + (LARGE_BAY_BONUS if "largebay" in pilot.equipment else 0)
+    if pilot.cargo_used() > capacity:
+        return False, (f"Hold too small: {pilot.cargo_used()}t aboard, "
+                       f"{capacity}t capacity")
+    if len(pilot.equipment) > cfg.slots:
+        return False, (f"{cfg.slots} equipment slots; you carry "
+                       f"{len(pilot.equipment)} items")
+    if pilot.missiles > cfg.missiles:
+        return False, (f"{cfg.name} carries {cfg.missiles} missiles; "
+                       f"sell {pilot.missiles - cfg.missiles} first")
+    return True, ""
+
+
+def buy_ship(pilot, key):
+    """Trade the current hull in against a new one."""
+    from .ships import PLAYER_SHIPS, TRADE_IN, player_ship
+    ok, why = can_buy_ship(pilot, key)
+    if not ok:
+        return False, why
+    cfg = PLAYER_SHIPS[key]
+    cost = round(max(0.0, cfg.price - player_ship(pilot.ship).price * TRADE_IN), 1)
+    pilot.credits = round(pilot.credits - cost, 1)
+    pilot.ship = key
+    pilot.missiles = min(pilot.missiles, cfg.missiles)
+    if cost <= 0:
+        return True, (f"Traded for a {cfg.name}; the old hull covered it "
+                      "and no change was given")
+    return True, f"Bought a {cfg.name} for {cost:.0f} CR (trade-in included)"
+
+
+def sell_missile(pilot):
+    from .data import EQUIPMENT_BY_KEY
+    if pilot.missiles <= 0:
+        return False, "No missiles to sell"
+    refund = round(EQUIPMENT_BY_KEY["missile"].price * MISSILE_RESALE, 1)
+    pilot.missiles -= 1
+    pilot.credits = round(pilot.credits + refund, 1)
+    return True, f"Sold a missile for {refund:.0f} CR"
+
+
+def sell_equipment(pilot, key):
+    """Cash in a fitted item at half price (never the one you are using)."""
+    item = EQUIPMENT_BY_KEY.get(key)
+    if item is None or key not in pilot.equipment:
+        return False, "Not fitted"
+    refund = round(item.price * MISSILE_RESALE, 1)
+    pilot.equipment.discard(key)
+    if key == "largebay" and pilot.cargo_used() > pilot.cargo_cap:
+        pilot.equipment.add(key)
+        return False, "Cargo would not fit without the bay"
+    pilot.credits = round(pilot.credits + refund, 1)
+    return True, f"Sold {item.name} for {refund:.0f} CR"
+
+
+def why_not(pilot, item, tech):
+    """Explain why an item is not on the shelf."""
+    if item.tech > tech:
+        return f"needs tech {item.tech}"
+    if item.key == "missile":
+        return "racks are full" if pilot.missiles >= pilot.max_missiles else ""
+    if item.key == "largebay":
+        return "already fitted" if "largebay" in pilot.equipment else ""
+    if item.key in ("beam", "military"):
+        order = {"pulse": 0, "beam": 1, "military": 2}
+        if order[item.key] <= order[pilot.laser]:
+            return "you have this laser or better"
+        return ""
+    if item.key in pilot.equipment:
+        return "already fitted"
+    if len(pilot.equipment) >= pilot.slots:
+        return f"all {pilot.slots} slots used"
+    return ""
