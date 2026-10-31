@@ -61,13 +61,20 @@ class EventTest(unittest.TestCase):
         self.assertEqual([(e.kind, e.until) for e in again.market.events], first)
 
     def test_events_expire_with_the_clock(self):
-        state = docked(now=economy.EVENT_PERIOD * 2.5)
-        if not state.market.events:
-            self.skipTest("no event in this window")
-        state.time = state.market.events[0].until + 1
+        state = docked(now=0.0)
+        events = []
+        for bucket in range(1, 40):
+            state.time = economy.EVENT_PERIOD * bucket
+            state.markets.clear()
+            events = state.market_for(state.system).events
+            if events:
+                break
+        self.assertTrue(events, "no event in forty windows")
+        state.time = events[0].until + 1
         state.markets.clear()
         fresh = state.market
         self.assertEqual([e for e in fresh.events if e.until < state.time], [])
+        self.assertFalse(any(e.until <= state.time for e in fresh.events))
 
 
 class MarketPersistenceTest(unittest.TestCase):
